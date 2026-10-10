@@ -90,7 +90,9 @@ def render_text(d: Dict[str, Any]) -> str:
             L.append(_row(f"  共食  {g['itemName']} ×{g['qty']}", _money(g["subtotal"])))
             L.append(f"        {'/'.join(g['members'])} 一起分")
         for sv in p.get("shared", []):
-            L.append(_row(f"  共享  {sv['name']} ×{sv['qty']}", _money(sv["subtotal"])))
+            word = "加配" if p.get("single") else "共享"
+            qty = f" ×{sv['qty']}" if sv["qty"] > 1 else ""
+            L.append(_row(f"  {word}  {sv['name']}{qty}", _money(sv["subtotal"])))
 
         for w in p.get("warnings", []):
             L.append("")

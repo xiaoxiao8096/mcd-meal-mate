@@ -9,7 +9,7 @@
   "store": { ... },                  // 原样回显
   "menuItemCount": 82,               // 解析出的菜单项数
   "detailCount": 3,                  // 解析出的套餐详情数
-  "plans": [ ... ],                  // 四套方案
+  "plans": [ ... ],                  // 五套方案
   "notes": [ ... ]                   // 固定提示语
 }
 ```
@@ -81,5 +81,5 @@
 ```bash
 python scripts/render.py plans.json text      # 人读的摘要，带 ⚠ 标注
 python scripts/render.py plans.json markdown  # 贴 README 的对比表
-python scripts/render.py plans.json request   # 四套核价请求体
+python scripts/render.py plans.json request   # 五套核价请求体
 ```

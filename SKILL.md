@@ -25,6 +25,9 @@ description: 给一群人按预算配出各自想吃的麦当劳餐，先选门�
 2. **不猜辣味。** 菜单没有成分表。只有拉过 `query-meal-detail`、确认过每一轮候选都不含辣味关键词的餐品，才可以说"这个不辣"。没拉过详情的套餐一律标注"辣味未确认"。
 3. **查不到就说查不到。** 门店当天没有可用券、某餐品售罄、某轮次没有合法选项——都要如实说，不要编一个看起来合理的答案。
 4. **不承诺过敏安全。** 忌口只做文本启发式匹配，明确告知用户这不构成过敏建议。
+5. **城市不许猜。** `query-nearby-stores` 的 `city` 必须来自用户，不能从地名推测。
+   （真实踩过：把「湖南工商大学南校区」当成衡阳，实际在长沙，接口照样返回了衡阳门店——
+   因为 city 过滤确实生效，错的是填进去的值。）拿到结果后用 `stores.py --city` 反查一遍。
 5. **不下单。** 见"边界"。
 
 ## 工作流
@@ -33,11 +36,14 @@ description: 给一群人按预算配出各自想吃的麦当劳餐，先选门�
 
 **流程从选门店开始**，没有门店就没有菜单、没有价格、没有券。
 
+⚠️ **城市必须问，不能猜。** 地名不带城市时尤其容易错——「湖南工商大学南校区」在**长沙**，
+不在衡阳。猜错城市会拿到另一个城的门店和菜单，后面全白算。
+
 问清楚这几项，缺哪问哪：
 
 | 要素 | 缺失时 |
 |---|---|
-| 城市 + 位置关键词（或直接给门店名） | 必须问 |
+| **城市** + 位置关键词（或直接给门店名） | **必须问，绝不推测** |
 | 人数、就餐方式（`beType`） | 必须问 |
 | 堂食 / 外带 / 得来速 / 外送 | 默认问，别擅自决定 |
 | 总预算 | 必须问 |
@@ -58,8 +64,11 @@ query-nearby-stores   beType + searchType=2 + city + keyword
 - 给一句话推荐
 
 ```bash
-python scripts/stores.py stores.json --now 13:30 --today 2026-10-10
+python scripts/stores.py stores.json --now 13:30 --today 2026-10-10 --city 长沙
 ```
+
+`--city` 会做一次反向校验：**如果返回的门店名里都不含你填的城市，说明城市填错了**，
+先回去问用户，别继续往下算。
 
 **把推荐结果给用户确认后再往下走。** 门店是整单的基准，选错了后面全白算。
 
@@ -124,7 +133,7 @@ python scripts/render.py plans.json markdown    # 对比表
 python scripts/render.py plans.json request     # 核价请求体
 ```
 
-引擎会输出**四套**方案：`value`（性价比首选）、`cheapest`（极致省钱）、`tasty`（当季尝鲜）、`share`（多人拼单）。
+引擎会输出**五套**方案：`light`（轻食低卡）、`value`（性价比首选）、`cheapest`（极致省钱）、`tasty`（当季尝鲜）、`share`（多人拼单）。
 
 ### 第 7 步：用 calculate-price 逐套核价（不可跳过）
 
@@ -213,7 +222,7 @@ data/sample-case-4p-180.json       真实抓取样本（菜单 + 套餐详情）
 data/sample-campaigns.json         真实抓取样本（活动日历）
 data/sample-nutrition.json         真实抓取样本（营养表）
 data/sample-stores.json            真实抓取样本（门店列表）
-tests/                             134 项自测（规划 / 活动 / 分账 / 营养）
+tests/                             153 项自测（规划 / 活动 / 分账 / 营养 / 门店）
 references/input-schema.md         引擎输入格式
 references/output-schema.md        引擎输出格式
 references/mcp-tools.md            MCP 调用规范与踩坑记录

@@ -409,6 +409,7 @@ class Plan:
     shared: List[Tuple[Item, int]]
     groups: List[Group] = field(default_factory=list)
     headcount: int = 0
+    single: bool = False
     warnings: List[str] = field(default_factory=list)
 
     @property
@@ -458,6 +459,7 @@ class Plan:
         return {
             "strategy": self.strategy,
             "label": self.label,
+            "single": self.single,
             "estimatedTotal": self.total,
             "perCapita": round(self.total / max(1, self.headcount or len(assigned_ids) or len(self.per_person)), 2),
             "assignments": assign,
@@ -597,6 +599,13 @@ def build_plan(strategy: str, people: List[Person], items: Dict[str, Item],
     per_person: List[Tuple[Person, Selection]] = []
 
     if strategy == "share":
+        if len(people) < 2:
+            fb = build_plan("value", people, items, details, budget)
+            if fb is not None:
+                fb.strategy = "share"
+                fb.label = "拼单（单人改用性价比）"
+                fb.warnings.insert(0, "单人点单不适用「一份覆盖 2 人」的分享餐，已改用性价比方案")
+            return fb
         return _build_share_plan(people, items, details, budget, warnings)
 
     for p in people:
@@ -613,6 +622,8 @@ def build_plan(strategy: str, people: List[Person], items: Dict[str, Item],
         per_person.append((p, pick))
 
     n_side, n_dessert = SHARED_RECIPE[strategy]
+    if len(people) < 2:
+        n_side, n_dessert = 1, 1
     sides = sorted(
         [i for i in items.values() if i.kind == "share_side" and i.price > 0],
         key=lambda i: (0 if i.is_big_share else 1, i.price),
@@ -644,6 +655,11 @@ def build_plan(strategy: str, people: List[Person], items: Dict[str, Item],
     plan = Plan(strategy=strategy, label=STRATEGIES[strategy],
                 per_person=per_person, shared=shared,
                 headcount=len(people), warnings=warnings)
+    # 单人：不存在"共享"，最多 1 份小食 + 1 份甜品——别把一个人当一组
+    if len(people) < 2:
+        plan.single = True
+        plan.shared = ([x for x in plan.shared if x[0].kind == "share_side"][:1]
+                       + [x for x in plan.shared if x[0].kind == "dessert"][:1])
     _enforce_budget(plan, budget)
     return plan
 

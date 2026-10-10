@@ -46,12 +46,15 @@ jobs:
       - name: Nutrition self-check
         run: python tests/test_nutrition.py
 
+      - name: Store self-check
+        run: python tests/test_stores.py
+
       - name: End-to-end offline run
         shell: bash
         run: |
           python scripts/plan.py data/sample-case-4p-180.json > plans.json
           python scripts/render.py plans.json text
-          python scripts/stores.py data/sample-stores.json --now 13:30 --today 2026-10-10
+          python scripts/stores.py data/sample-stores.json --now 13:30 --today 2026-10-10 --city 衡阳
           python scripts/campaign.py data/sample-campaigns.json data/sample-case-4p-180.json plans.json > campaign.json
           python scripts/nutrition.py data/sample-nutrition.json data/sample-case-4p-180.json plans.json --target 1800 > nutrition.json
           python scripts/split_bill.py plans.json value

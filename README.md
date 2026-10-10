@@ -132,6 +132,7 @@
 没有门店就没有菜单、没有价格、没有券。`query-nearby-stores` 会把附近的店全列出来，
 但不该让你在一堆店里面自己挑——`stores.py` 会：
 
+- **校验城市填对没有**——门店名里都不含你填的城市就告警（真实踩过：把湖南工商大学南校区当成衡阳，实际在长沙）
 - **滤掉此刻已打烊的**（跨零点营业的店也判对：23:50 还能选到 01:00 / 02:00 关门的那几家）
 - 按距离排序，标出**是否支持预约**、今天还剩哪些时段
 - 给一句话推荐
@@ -236,7 +237,7 @@ A  应付 ¥24.15
 命令行也能跑（**全离线，不联网、不要 Token**）：
 
 ```bash
-python scripts/stores.py data/sample-stores.json --now 13:30   # 选门店
+python scripts/stores.py data/sample-stores.json --now 13:30 --city 长沙   # 选门店
 python scripts/plan.py data/sample-case-4p-180.json > plans.json
 python scripts/campaign.py data/sample-campaigns.json data/sample-case-4p-180.json plans.json
 python scripts/nutrition.py data/sample-nutrition.json data/sample-case-4p-180.json plans.json --target 1800
@@ -282,7 +283,7 @@ python scripts/split_bill.py plans.json value
 SKILL.md · MCP_INTEGRATION.md · CONTEST_DECLARATION.md
 mcp-config.example.json · workbuddy.md · SUBMIT.md
 scripts/    stores.py  plan.py  campaign.py  nutrition.py  split_bill.py  render.py
-tests/      134 项自测（规划 42 · 活动 25 · 分账 35 · 营养 32）
+tests/      153 项自测（规划 48 · 活动 25 · 分账 35 · 营养 32 · 门店 13）
 data/       真实抓取样本（门店 / 菜单 / 活动 / 营养）
 references/ 输入输出格式 · MCP 踩坑 · 实测记录
 .github/    Actions：双系统 × 双版本

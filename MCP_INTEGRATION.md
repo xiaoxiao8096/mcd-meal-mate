@@ -32,7 +32,7 @@
         │
         ├─ 5. scripts/plan.py ──────► 本地组合优化（纯离线，不联网）
         │      输入 menu + details + group
-        │      输出四套方案 + calculatePriceRequest
+        │      输出五套方案 + calculatePriceRequest
         │
         └─ 6. calculate-price ──────► 逐套官方核价 ★价格权威来源
                storeCode + orderType + beType + items[](含 roundList)
@@ -143,7 +143,7 @@
 
 ## 四、实测一致性验证
 
-2026-10-10 用真实门店数据跑四套方案，引擎预估值与 `calculate-price` 返回值**四套全部一致**：
+2026-10-10 用真实门店数据跑五套方案，引擎预估值与 `calculate-price` 返回值**五套全部一致**：
 
 | 策略 | 引擎预估 | `calculate-price` 返回 | 一致 |
 |---|---:|---:|:--:|

@@ -27,24 +27,57 @@
   grep -rn -E "Bearer [A-Za-z0-9]{20,}" . | grep -v REDACTED | grep -v MCP_TOKEN
   ```
 
-## 三、建仓与推送（需你的 GitHub 账号）
+## 三、建仓与推送
 
-- [ ] 新建仓库，名字建议 `mcd-meal-mate`
-- [ ] **Visibility 必须选 Public**（私有不算数）
-- [ ] 不要勾选 "Add a README file"（本地已有，避免冲突）
-- [ ] 推送：
+### 3.1 你先建仓（约 30 秒）
 
-  ```bash
-  cd mcd-meal-mate
-  git init
-  git add .
-  git commit -m "feat: 麦麦拼餐师 - 基于麦当劳 MCP 的群体拼餐规划 Skill"
-  git branch -M main
-  git remote add origin https://github.com/你的用户名/mcd-meal-mate.git
-  git push -u origin main
-  ```
+打开 **https://github.com/new**
 
-- [ ] ⚠️ **仓库创建时间必须在 2025-12-25 00:00 ~ 2026-10-25 23:59 之间**（现在建没问题）
+| 字段 | 填什么 |
+|---|---|
+| Owner | `xiaoxiao8096` |
+| Repository name | `mcd-meal-mate` |
+| Description | `麦麦拼餐师 — 基于麦当劳 MCP 的群体拼餐规划 Skill` |
+| **Visibility** | **Public** ← 私有不算数 |
+| README / .gitignore / license | **全部不要勾**（本地已有，避免冲突） |
+
+点 **Create repository**。
+
+> ⚠️ **仓库创建时间必须落在 2025-12-25 00:00 ~ 2026-10-25 23:59 之间**，现在建完全没问题。
+
+### 3.2 推送（本地提交已就绪）
+
+本地已经 `git init` + 提交完成（19 个文件 / 2757 行，commit `c66ea0a`），只剩推送。
+
+**方式一：PAT（你习惯的方式）**
+
+PAT 需要勾 `repo` 权限。在 https://github.com/settings/tokens 生成。
+
+```bash
+cd C:/Users/14549/Desktop/麦麦/mcd-meal-mate
+git remote add origin https://你的PAT@github.com/xiaoxiao8096/mcd-meal-mate.git
+NO_PROXY='*' git -c http.proxy= -c https.proxy= push -u origin main
+```
+
+> 走直连更快更稳；若卡住再加代理：
+> `HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 git push -u origin main`
+>
+> 推完记得清掉 remote 里的 PAT：`git remote set-url origin https://github.com/xiaoxiao8096/mcd-meal-mate.git`
+
+**方式二：GitHub Desktop**
+
+打开 GitHub Desktop → Add existing repository → 选 `mcd-meal-mate` 目录 → Publish 上传（确认勾 Public）。
+
+### 3.3 推完验证
+
+仓库地址应为：**https://github.com/xiaoxiao8096/mcd-meal-mate**
+
+打开页面确认这 4 样都在：
+- [ ] `CONTEST_DECLARATION.md`
+- [ ] `MCP_INTEGRATION.md`
+- [ ] `mcp-config.example.json`
+- [ ] `README.md`
+- [ ] **仓库是 Public**
 
 ## 四、发 Issue 报名
 

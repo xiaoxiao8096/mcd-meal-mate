@@ -391,6 +391,68 @@ def test_estimate_never_masquerades():
     P._KCAL_CONF.clear(); P._KCAL_NOTE.clear(); P._KCAL_ESTIMATE.clear()
 
 
+def test_no_percapita_when_solo():
+    """
+    单人时不得显示"人均"。
+
+    用户原话：「我一个人吃，哪来的人均」。
+    1 人时人均 == 总额，重复展示等于凑信息，还会让人误以为算错了。
+    """
+    print("\\n[11] 单人不得显示人均（用户指出的问题）")
+    import os as _o
+    sys.path.insert(0, _o.path.join(_o.path.dirname(_o.path.dirname(
+        _o.path.abspath(__file__))), "scripts"))
+    import render as R
+    with open(SAMPLE, encoding="utf-8") as f:
+        data = json.load(f)
+    items = P.parse_menu(data["menu"])
+    tags = {c: it.tags for c, it in items.items()}
+    details = {}
+    for code, dd in (data["details"] or {}).items():
+        it = items.get(str(code))
+        det = P.parse_detail(dd, it.price if it else 0.0, tags)
+        if det:
+            details[str(code)] = det
+
+    P._KCAL_BY_CODE.clear(); P._KCAL_BY_NAME.clear()
+    P._KCAL_CONF.clear(); P._KCAL_NOTE.clear(); P._KCAL_ESTIMATE.clear()
+
+    def render_with(headcount):
+        people = [P.Person(pid=f"P{i+1}") for i in range(headcount)]
+        plans = [P.build_plan(st, people, items, details, float("inf")).to_dict(data["store"])
+                 for st in ("light", "value", "cheapest", "tasty", "share")]
+        plans = [x for x in plans if x]
+        return R.render_text({"store": data["store"], "plans": plans, "notes": []}), plans
+
+    solo_txt, solo_plans = render_with(1)
+    check("单人方案 headcount 输出为 1",
+          all(p.get("headcount") == 1 for p in solo_plans),
+          str([p.get("headcount") for p in solo_plans]))
+    money = [x for x in solo_txt.split("\\n") if "合计 ¥" in x]
+    check("单人时金额行不出现人均",
+          money and all("人均" not in x for x in money), money[:1])
+    kcal = [x for x in solo_txt.split("\\n") if "热量合计" in x and "未知" not in x]
+    check("单人时热量行不出现人均",
+          all("人均" not in x for x in kcal), kcal[:1])
+
+    duo_txt, duo_plans = render_with(2)
+    check("双人方案 headcount 输出为 2",
+          all(p.get("headcount") == 2 for p in duo_plans),
+          str([p.get("headcount") for p in duo_plans]))
+    money2 = [x for x in duo_txt.split("\\n") if "合计 ¥" in x]
+    check("双人时金额行保留人均",
+          money2 and all("人均" in x for x in money2), money2[:1])
+
+    # markdown：单人不出"人均"列
+    md_solo = R.render_markdown({"store": data["store"], "plans": solo_plans})
+    check("单人 markdown 无人均列", "人均" not in md_solo.split("\\n")[0], md_solo.split("\\n")[0])
+    md_duo = R.render_markdown({"store": data["store"], "plans": duo_plans})
+    check("双人 markdown 有人均列", "人均" in md_duo.split("\\n")[0], md_duo.split("\\n")[0])
+
+    P._KCAL_BY_CODE.clear(); P._KCAL_BY_NAME.clear()
+    P._KCAL_CONF.clear(); P._KCAL_NOTE.clear(); P._KCAL_ESTIMATE.clear()
+
+
 def main() -> int:
     print("=" * 62)
     print("营养热量 · 离线自测")
@@ -405,6 +467,7 @@ def main() -> int:
     test_kcal_line_always()
     test_combo_never_inherits_single()
     test_estimate_never_masquerades()
+    test_no_percapita_when_solo()
     print("\n" + "=" * 62)
     print(f"通过 {_p} / 失败 {_f}")
     print("=" * 62)

@@ -480,6 +480,8 @@ class Plan:
             "label": self.label,
             "single": self.single,
             "estimatedTotal": self.total,
+            # 渲染层据此决定是否显示"人均"——1 人时人均就是总额，不重复展示
+            "headcount": self.headcount or len(self.per_person) or 1,
             "perCapita": round(self.total / max(1, self.headcount or len(assigned_ids) or len(self.per_person)), 2),
             "assignments": assign,
             "groups": [

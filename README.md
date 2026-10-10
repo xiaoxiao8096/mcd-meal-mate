@@ -331,7 +331,7 @@ python scripts/split_bill.py plans.json value
 SKILL.md · MCP_INTEGRATION.md · CONTEST_DECLARATION.md
 mcp-config.example.json · workbuddy.md · SUBMIT.md
 scripts/    stores.py  plan.py  campaign.py  nutrition.py  split_bill.py  render.py
-tests/      196 项自测（规划 52 · 活动 25 · 分账 35 · 营养 71 · 门店 13）
+tests/      203 项自测（规划 52 · 活动 25 · 分账 35 · 营养 78 · 门店 13）
 data/       真实抓取样本（门店 / 菜单 / 活动 / 营养）
             nutrition-live.txt        MCP list-nutrition-foods 全量 160 条（2026-10-10 同步）
 scripts/

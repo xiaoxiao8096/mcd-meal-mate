@@ -25,7 +25,7 @@ RULE = "─" * W
 PITCH = {
     "light":    "热量升序，配热量目标用",
     "value":    "花小钱吃好，套餐优先、差价最优",
-    "cheapest": "能省则省，人均地板价",
+    "cheapest": "能省则省，单人地板价",
     "tasty":    "当季新品优先，把预算花到位",
     "share":    "双人餐按份算，几个人几份就够",
 }
@@ -90,9 +90,20 @@ def render_text(d: Dict[str, Any]) -> str:
 
     for p in d.get("plans", []):
         ico = ICON.get(p["strategy"], "🍟")
-        L.append(f"{ico} {p['label']}  ·  {PITCH.get(p['strategy'], '')}")
+        pitch = PITCH.get(p["strategy"], "")
+        # 单人时"双人餐按份算"这句不适用（引擎已把 share 降级为性价比）
+        n_here = int(p.get("headcount") or len(p.get("assignments", [])) or 1)
+        if n_here <= 1 and "双人" in pitch:
+            pitch = "一个人也按份算，聊胜于无"
+        L.append(f"{ico} {p['label']}  ·  {pitch}")
         L.append("")
-        L.append(f"   合计 {_money(p['estimatedTotal'])}      人均 {_money(p['perCapita'])}")
+        # 单人时不显示"人均"——1 人的人均就是总额，重复一遍反而像在凑信息。
+        # 用户反馈过："我一个人吃，哪来的人均"。
+        n_head = int(p.get("headcount") or len(p.get("assignments", [])) or 1)
+        money_line = f"   合计 {_money(p['estimatedTotal'])}"
+        if n_head > 1:
+            money_line += f"      人均 {_money(p['perCapita'])}"
+        L.append(money_line)
         # 热量合计行**始终显示**。算不出来就写"未知"，不能因为没有数字就不显示——
         # 那样看起来像"漏标"，而不是"数据缺失"。
         n = len(p.get("assignments", [])) or 1
@@ -104,8 +115,10 @@ def render_text(d: Dict[str, Any]) -> str:
         if known == 0:
             L.append(f"   热量合计 未知    （0/{total} 项在营养表内，查不到）")
         else:
-            line = (f"   热量合计 {p.get('totalKcal') or 0:.0f} kcal    "
-                    f"人均 {(p.get('totalKcal') or 0)/n:.0f} kcal")
+            line = f"   热量合计 {p.get('totalKcal') or 0:.0f} kcal"
+            # 同理：单人时"人均热量" = 总热量，不重复
+            if n_head > 1:
+                line += f"    人均 {(p.get('totalKcal') or 0)/n:.0f} kcal"
             if known < total:
                 line += f"    （精确 {exact} 项" + (f"，估算 ≈{est} 项" if est else "") + f"，缺 {total - known} 项）"
             L.append(line)
@@ -149,11 +162,18 @@ def render_text(d: Dict[str, Any]) -> str:
 
 
 def render_markdown(d: Dict[str, Any]) -> str:
-    rows = ["| 方案 | 合计 | 人均 | 一句话 |", "|---|---:|---:|---|"]
+    # 单人时不加"人均"列（同render_text 的理由）
+    multi = any(int(p.get("headcount") or len(p.get("assignments", [])) or 1) > 1
+                for p in d.get("plans", []))
+    if multi:
+        rows = ["| 方案 | 合计 | 人均 | 一句话 |", "|---|---:|---:|---|"]
+    else:
+        rows = ["| 方案 | 合计 | 一句话 |", "|---|---:|---|"]
     for p in d.get("plans", []):
+        cap = (f" | {_money(p['perCapita'])}" if multi else "")
         rows.append(
             f"| {ICON.get(p['strategy'], '')} **{p['label']}** "
-            f"| **{_money(p['estimatedTotal'])}** | {_money(p['perCapita'])} "
+            f"| **{_money(p['estimatedTotal'])}**{cap} "
             f"| {PITCH.get(p['strategy'], '')} |"
         )
     rows += ["", "> 价格已由麦当劳 `calculate-price` 官方核价，非本地估算。", ""]

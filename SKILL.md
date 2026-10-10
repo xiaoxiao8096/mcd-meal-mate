@@ -1,6 +1,6 @@
 ---
 name: mcd-meal-mate
-description: 给一群人按预算配出各自想吃的麦当劳餐，并算出优惠前后的人均花费。当用户说"我们四个人点麦当劳"、"帮我凑单"、"预算 180 以内怎么吃"、"谁能吃辣谁不吃辣"、"拼餐怎么配划算"时使用。基于麦当劳 MCP 的实时菜单与套餐选配数据，输出极致省钱/均衡/口味优先/多人分享四套方案，总价一律由 calculate-price 官方核价。
+description: 给一群人按预算配出各自想吃的麦当劳餐，并算出优惠前后的人均花费。当用户说"我们四个人点麦当劳"、"帮我凑单"、"预算 180 以内怎么吃"、"谁能吃辣谁不吃辣"、"拼餐怎么配划算"时使用。基于麦当劳 MCP 的实时菜单与套餐选配数据，输出性价比首选/极致省钱/当季尝鲜/多人拼单四套方案，总价一律由 calculate-price 官方核价。
 ---
 
 # 麦麦拼餐师
@@ -96,8 +96,7 @@ campaign-calendar   可选 specifiedDate=yyyy-MM-dd
 - 输出 `campaignCodes`，回注给引擎的输入 JSON
 - 顺带提取营销话术与谐音梗落点
 
-`campaignCodes` 只影响 `tasty` 策略（活动限定品优先）；`cheapest` 与 `balanced`
-保持价格优先，不被活动带偏。
+`campaignCodes` 只在"同样是套餐"时参与排序，排在套餐丰富度之后；`cheapest` 完全不受影响。
 
 ### 第 6 步：交给规划引擎
 
@@ -110,7 +109,7 @@ python scripts/render.py plans.json markdown    # 对比表
 python scripts/render.py plans.json request     # 核价请求体
 ```
 
-引擎会输出**四套**方案：`cheapest`（极致省钱）、`balanced`（均衡）、`tasty`（口味优先）、`share`（多人分享）。
+引擎会输出**四套**方案：`value`（性价比首选）、`cheapest`（极致省钱）、`tasty`（当季尝鲜）、`share`（多人拼单）。
 
 ### 第 7 步：用 calculate-price 逐套核价（不可跳过）
 

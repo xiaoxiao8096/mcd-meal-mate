@@ -22,7 +22,7 @@ import plan as P  # noqa: E402
 SAMPLE = os.path.join(ROOT, "data", "sample-case-4p-180.json")
 
 # 2026-10-10 由 calculate-price 官方核价确认的四个总价（单位：元）
-OFFICIAL = {"cheapest": 87.40, "balanced": 133.40, "tasty": 175.80, "share": 120.70}
+OFFICIAL = {"value": 138.40, "cheapest": 71.50, "tasty": 175.80, "share": 120.70}
 
 _passed = 0
 _failed = 0
@@ -85,7 +85,7 @@ def test_load_sample():
 def test_strategies(items, details, people, budget):
     print("\n[4] 四策略与官方核价一致性")
     got = {}
-    for st in ("cheapest", "balanced", "tasty", "share"):
+    for st in ("value", "cheapest", "tasty", "share"):
         pl = P.build_plan(st, people, items, details, budget)
         check(f"{st} 能生成方案", pl is not None)
         if not pl:
@@ -105,7 +105,7 @@ def test_spicy_safety(items, details, people):
     print("\n[6] 忌口安全性（不吃辣的人绝不能拿到辣餐）")
     spicy_people = [p for p in people if "spicy" in p.avoid]
     check("样本里存在不吃辣的人", len(spicy_people) == 2)
-    for st in ("cheapest", "balanced", "tasty", "share"):
+    for st in ("value", "cheapest", "tasty", "share"):
         pl = P.build_plan(st, people, items, details, 180)
         if not pl:
             continue

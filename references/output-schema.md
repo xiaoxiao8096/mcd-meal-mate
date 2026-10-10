@@ -18,8 +18,8 @@
 
 ```jsonc
 {
-  "strategy": "cheapest",            // cheapest | balanced | tasty | share
-  "label": "极致省钱",
+  "strategy": "value",               // value | cheapest | tasty | share
+  "label": "性价比首选",
   "estimatedTotal": 87.4,            // 引擎预估值（元）——不是权威值
   "perCapita": 21.85,
   "assignments": [                   // 每人一份主食

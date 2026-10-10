@@ -60,10 +60,10 @@
   },
 
   // 选填：只要其中几个策略，默认四个全出
-  "strategies": ["cheapest", "balanced", "tasty", "share"],
+  "strategies": ["value", "cheapest", "tasty", "share"],
 
   // 选填：campaign.py 输出的活动关联餐品编码
-  // 只影响 tasty 策略（活动限定品优先）；cheapest / balanced 保持价格优先
+  // 排在"套餐丰富度"之后，因此只在同样是套餐时影响选择；cheapest 完全不受影响
   "campaignCodes": ["9900016073", "9900016075", "521950"]
 }
 ```

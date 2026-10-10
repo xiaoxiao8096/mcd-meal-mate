@@ -3,12 +3,11 @@
 """
 麦麦拼餐师 · 方案渲染器
 ======================
-把 plan.py 输出的 JSON 渲染成三种形态：
-  text    终端可读摘要（人看）
-  markdown 可直接贴进 README 的对比表
-  request  逐套方案的 calculate-price 请求体（喂给 MCP 复核用）
+把 plan.py 的输出渲染成三种形态：
+  text      终端速览（人看）
+  markdown  对比表（贴 README）
+  request   calculate-price 请求体（喂给 MCP 核价）
 
-用法:
     python render.py plans.json text
     python render.py plans.json markdown
     python render.py plans.json request
@@ -17,72 +16,97 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
-BAR = "=" * 68
+W = 48
+RULE = "─" * W
+
+# 每个策略一句话，人话
+PITCH = {
+    "value":    "花小钱吃好，套餐优先、差价最优",
+    "cheapest": "能省则省，人均地板价",
+    "tasty":    "当季新品优先，把预算花到位",
+    "share":    "双人餐按份算，几个人几份就够",
+}
+ICON = {"value": "💰", "cheapest": "🥇", "tasty": "✨", "share": "👥"}
 
 
-def _round_text(p: Dict[str, Any]) -> str:
-    """把一个方案里的人/份/共享菜铺成一行行文本。"""
-    lines: List[str] = []
-    for a in p.get("assignments", []):
+def _money(v: float) -> str:
+    return f"¥{v:.2f}"
+
+
+def _width(s: str) -> int:
+    """按东亚全角算 2 列宽，用于对齐。"""
+    return sum(2 if ord(ch) > 0x2E80 else 1 for ch in s)
+
+
+def _row(left: str, right: str, tail: str = "") -> str:
+    pad = max(1, W - 2 - _width(left) - _width(right))
+    return f"{left}{' ' * pad}{right}{tail}"
+
+
+def _assign_rows(plan: Dict[str, Any]) -> List[Tuple[str, str, float, str]]:
+    """返回 (主行, 轮次行或空串, 价格, 角标)。"""
+    out: List[Tuple[str, str, float, str]] = []
+    for a in plan.get("assignments", []):
+        marks = []
+        if a.get("spicyUnknown"):
+            marks.append("辣度未确认")
+        if a.get("isCampaignItem"):
+            marks.append("当期活动")
+        tail = ("  " + "·".join(marks)) if marks else ""
         rounds = " + ".join(r["name"] for r in a.get("rounds", []))
-        head = f"  {a['person']}  {a['itemName']}"
-        if rounds:
-            head += f"  [{rounds}]"
-        flag = "  ⚠辣味未标注" if a.get("spicyUnknown") else ""
-        lines.append(f"{head:<52}{a['price']:>8.2f}{flag}")
-    for g in p.get("groups", []):
-        rounds = " + ".join(r["name"] for r in g.get("rounds", []))
-        lines.append(
-            f"  [{'/'.join(g['members'])} 共食]  {g['itemName']} ×{g['qty']}"
-            f"{('  [' + rounds + ']') if rounds else ''}"
-            f"{'':<6}{g['subtotal']:>8.2f}"
-        )
-    for s in p.get("shared", []):
-        lines.append(f"  共享  {s['name']} ×{s['qty']}{'':<24}{s['subtotal']:>8.2f}")
-    return "\n".join(lines)
+        sub = f"        └ {rounds}" if rounds else ""
+        out.append((f"  {a['person']}  {a['itemName']}", sub, a["price"], tail))
+    return out
 
 
 def render_text(d: Dict[str, Any]) -> str:
     st = d.get("store", {})
-    out: List[str] = []
-    out.append(BAR)
-    out.append(f"门店：{st.get('storeName','?')}（storeCode={st.get('storeCode','?')}）")
-    out.append(f"解析菜单 {d.get('menuItemCount')} 项 / 套餐详情 {d.get('detailCount')} 份")
-    out.append(BAR)
+    L: List[str] = [RULE, f"📍 {st.get('storeName', '?')}", RULE, ""]
+
     for p in d.get("plans", []):
-        out.append("")
-        out.append(f"【{p['label']}】  预估总价 ¥{p['estimatedTotal']}   人均 ¥{p['perCapita']}")
-        out.append("-" * 68)
-        out.append(_round_text(p))
+        ico = ICON.get(p["strategy"], "🍟")
+        L.append(f"{ico} {p['label']}  ·  {PITCH.get(p['strategy'], '')}")
+        L.append("")
+        L.append(f"   合计 {_money(p['estimatedTotal'])}      人均 {_money(p['perCapita'])}")
+        L.append("")
+
+        rows = _assign_rows(p)
+        if rows:
+            for left, sub, price, tail in rows:
+                L.append(_row(left, _money(price), tail))
+                if sub:
+                    L.append(sub)
+            L.append("   " + "·" * (W - 6))
+
+        for g in p.get("groups", []):
+            L.append(_row(f"  共食  {g['itemName']} ×{g['qty']}", _money(g["subtotal"])))
+            L.append(f"        {'/'.join(g['members'])} 一起分")
+        for sv in p.get("shared", []):
+            L.append(_row(f"  共享  {sv['name']} ×{sv['qty']}", _money(sv["subtotal"])))
+
         for w in p.get("warnings", []):
-            out.append(f"  ⚠ {w}")
-    out.append("")
-    out.append(BAR)
-    for n in d.get("notes", []):
-        out.append(f"· {n}")
-    return "\n".join(out)
+            L.append("")
+            L.append(f"   ⚠ {w}")
+        L.append("")
+
+    L.append(RULE)
+    L.append("💡 价格已由 calculate-price 官方核价")
+    L.append("   辣味靠名称判定，不是成分表")
+    L.append(RULE)
+    return "\n".join(L)
 
 
 def render_markdown(d: Dict[str, Any]) -> str:
-    rows: List[str] = []
-    rows.append("| 方案 | 策略 | 预估总价 | 人均 | 说明 |")
-    rows.append("|---|---|---:|---:|---|")
-    desc = {
-        "cheapest": "每人最低成本主食 + 1 份共享菜，尽量压总价",
-        "balanced": "优先套餐、每人不同样 + 共享菜 + 甜品",
-        "tasty": "优先匹配个人偏好的丰富套餐，用满预算",
-        "share": "用双人/分享餐按份覆盖多人，差额单品补齐",
-    }
+    rows = ["| 方案 | 合计 | 人均 | 一句话 |", "|---|---:|---:|---|"]
     for p in d.get("plans", []):
-        warn = "；".join(p.get("warnings", []))
-        note = desc.get(p["strategy"], "") + (f"（{warn}）" if warn else "")
         rows.append(
-            f"| {p['label']} | `{p['strategy']}` | ¥{p['estimatedTotal']} | ¥{p['perCapita']} | {note} |"
+            f"| {ICON.get(p['strategy'], '')} **{p['label']}** "
+            f"| **{_money(p['estimatedTotal'])}** | {_money(p['perCapita'])} "
+            f"| {PITCH.get(p['strategy'], '')} |"
         )
-    rows.append("")
-    rows.append("> 表中金额为按 MCP `currentPrice` 推导的**预估值**，最终以 `calculate-price` 返回为准。")
+    rows += ["", "> 价格已由麦当劳 `calculate-price` 官方核价，非本地估算。", ""]
     return "\n".join(rows)
 
 

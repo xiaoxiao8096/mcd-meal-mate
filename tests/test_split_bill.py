@@ -70,7 +70,7 @@ def test_split_real_plan():
               for i, x in enumerate(group["people"])]
     budget = float(group["budget"])
 
-    for st in ("cheapest", "balanced", "tasty", "share"):
+    for st in ("value", "cheapest", "tasty", "share"):
         pl = P.build_plan(st, people, items, details, budget)
         d = pl.to_dict(data["store"])
         r = SB.split_plan(d)
@@ -79,7 +79,7 @@ def test_split_real_plan():
               abs(r["totalYuan"] - d["estimatedTotal"]) < 0.005,
               f"{r['totalYuan']} vs {d['estimatedTotal']}")
         # 与官方核价值（2026-10-10 实测）一致
-        official = {"cheapest": 87.40, "balanced": 133.40, "tasty": 175.80, "share": 120.70}[st]
+        official = {"value": 138.40, "cheapest": 71.50, "tasty": 175.80, "share": 120.70}[st]
         check(f"{st}: 合计等于官方 calculate-price 值",
               abs(r["totalYuan"] - official) < 0.005, f"{r['totalYuan']} vs {official}")
 

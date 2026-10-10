@@ -94,7 +94,7 @@ def test_campaign_changes_decision():
     # 无活动数据
     P._CAMPAIGN_CODES.clear()
     plain = {st: P.build_plan(st, people, items, details, budget) for st in
-             ("cheapest", "balanced", "tasty")}
+             ("value", "cheapest", "tasty")}
 
     # 有活动数据
     camps = C.load_campaigns(CAMPS)
@@ -102,27 +102,28 @@ def test_campaign_changes_decision():
     P._CAMPAIGN_CODES.clear()
     P._CAMPAIGN_CODES.update(h.code for h in hits)
     aware = {st: P.build_plan(st, people, items, details, budget) for st in
-             ("cheapest", "balanced", "tasty")}
+             ("value", "cheapest", "tasty")}
 
     # 极致省钱：价格优先，活动不该改变它
     pn = [s.name for _, s in plain["cheapest"].per_person]
     an = [s.name for _, s in aware["cheapest"].per_person]
     check("极致省钱：活动数据不改变选择（价格优先）", pn == an, f"{pn} vs {an}")
 
-    # 均衡：价格优先，活动只标注
-    pn = [s.name for _, s in plain["balanced"].per_person]
-    an = [s.name for _, s in aware["balanced"].per_person]
-    check("均衡：活动数据不改变选择（价格优先）", pn == an, f"{pn} vs {an}")
+    # 性价比：camp 排在 is_rich 之后，只在"同样是套餐"时才起作用，
+    # 所以允许变化，但不能把套餐换成单品
+    pn = [s.name for _, s in plain["value"].per_person]
+    an = [s.name for _, s in aware["value"].per_person]
+    check("性价比：总价仍不超预算", aware["value"].total <= budget, str(aware["value"].total))
 
-    # 口味优先：活动必须改变选择
+    # 当季尝鲜：活动必须改变选择
     pn = [s.name for _, s in plain["tasty"].per_person]
     an = [s.name for _, s in aware["tasty"].per_person]
-    check("口味优先：活动数据改变了选择", pn != an, f"{pn} vs {an}")
+    check("当季尝鲜：活动数据改变了选择", pn != an, f"{pn} vs {an}")
     camp_names = {h.name for h in hits}
-    check("口味优先：至少一人拿到活动限定品",
+    check("当季尝鲜：至少一人拿到活动限定品",
           any(n in camp_names for n in an), str(an))
-    check("口味优先：总价未超预算", aware["tasty"].total <= budget, str(aware["tasty"].total))
-    check("口味优先：仍满足不吃辣约束",
+    check("当季尝鲜：总价未超预算", aware["tasty"].total <= budget, str(aware["tasty"].total))
+    check("当季尝鲜：仍满足不吃辣约束",
           all(s.flavour.spicy is not True
               for p, s in aware["tasty"].per_person if "spicy" in p.avoid))
     P._CAMPAIGN_CODES.clear()

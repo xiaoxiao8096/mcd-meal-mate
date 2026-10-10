@@ -16,10 +16,10 @@
 
 四种策略
 --------
+value     性价比首选：命中偏好 > 套餐优先 > 当季活动 > 价格从低到高（主打）
 cheapest  极致省钱：每人最低成本主食 + 1 份共享小食，不加甜品
-balanced  均衡    ：优先套餐、每人不同样 + 2 份共享小食 + 1 份甜品
-tasty     口味优先：优先匹配个人偏好的丰富套餐 + 3 份共享小食 + 2 份甜品
-share     多人分享：优先用双人/分享餐按"份"覆盖多人，差额用单品补齐
+tasty     当季尝鲜：同样先保证是套餐，最后取贵的把预算用满
+share     多人拼单：优先用双人/分享餐按"份"覆盖多人，差额用单品补齐
 """
 
 from __future__ import annotations
@@ -364,19 +364,22 @@ def solve_rounds(detail: Detail, person: Person, used: Optional[Set[str]] = None
 # 方案
 # --------------------------------------------------------------------------
 STRATEGIES = {
+    "value": "性价比首选",
     "cheapest": "极致省钱",
-    "balanced": "均衡",
-    "tasty": "口味优先",
-    "share": "多人分享",
+    "tasty": "当季尝鲜",
+    "share": "多人拼单",
 }
 
 # 各策略的共享配置：(共享小食份数, 甜品份数)
 SHARED_RECIPE = {
     "cheapest": (1, 0),
-    "balanced": (2, 1),
+    "value": (2, 1),
     "tasty": (3, 2),
     "share": (1, 1),
 }
+
+# 共享菜最多占总预算的比例——人均再便宜也不该把一大半钱花在共享上
+SHARED_BUDGET_RATIO = 0.25
 
 
 @dataclass
@@ -522,22 +525,23 @@ def rank(sel: Selection, person: Person, strategy: str, used: Set[str]) -> Tuple
         bucket = int(-(-sel.price // 2))
         return (dup, bucket, 0 if sel.flavour is not None and _is_complete(sel) else 1, sel.price, pref)
     camp = 0 if sel.code in _CAMPAIGN_CODES else 1
-    if strategy == "balanced":
-        # 均衡 = 价格优先。活动限定品只做标注，不改变选择，
-        # 否则"均衡"会被活动加成拉高，与"极致省钱"失去区分度。
-        return (dup, pref, is_rich, sel.price)
+    if strategy == "value":
+        # 性价比：命中偏好 > 套餐优先 > 当季活动 > 价格从低到高。
+        # 套餐排在活动前面，因为套餐自带小食饮料，比单点划算（实测省 15.5 元）。
+        return (dup, pref, is_rich, camp, sel.price)
     if strategy == "tasty":
-        # 口味优先 = 活动优先。命中个人偏好 > 活动限定 > 套餐丰富度 > 价格，
-        # 因为"想吃点好的"往往意味着想尝当季新品，而不是买最贵的常规款。
-        return (dup, pref, camp, is_rich, -sel.price)
+        # 当季尝鲜：同样先保证是套餐，最后取贵的把预算用满。
+        # 注意 is_rich 必须在 camp 之前——否则会挑到当季新品单品，
+        # 出现"尝鲜比性价比还便宜"的反直觉结果。
+        return (dup, pref, is_rich, camp, -sel.price)
     # share：优先能覆盖多人份的
     return (dup, pref, is_share, is_rich, sel.price)
 
 
 _COMPLETE_CACHE: Dict[str, bool] = {}
 # campaign-calendar 判定为"活动关联"的餐品编码。由输入 JSON 的 campaignCodes 注入。
-# 作用：口味优先/均衡策略下，活动限定品获得优先级——大家正在吃的就是这些，
-#       推当季新品比推常规款更有价值。
+# 作用：在"同样是套餐"的前提下，活动限定品获得优先级——大家正在吃的就是这些。
+#       排序里它排在 is_rich 之后，所以不会把套餐降级成单品。
 _CAMPAIGN_CODES: Set[str] = set()
 
 
@@ -586,7 +590,7 @@ def build_plan(strategy: str, people: List[Person], items: Dict[str, Item],
             shared.append((s, 1))
 
     # 人多时共享小食按份数补：4 人以上至少两份像样的共享菜
-    if len(people) >= 4:
+    if len(people) >= 4 and strategy != "cheapest":
         expanded: List[Tuple[Item, int]] = []
         for it, q in shared:
             if it.kind == "share_side" and it.is_big_share and q == 1:
@@ -606,7 +610,7 @@ def _build_share_plan(people: List[Person], items: Dict[str, Item],
                       details: Dict[str, Detail], budget: float,
                       warnings: List[str]) -> Optional[Plan]:
     """
-    多人分享：优先用「一份覆盖 2 人」的双人/分享餐铺满，余下差额用单品补齐。
+    多人拼单：优先用「一份覆盖 2 人」的双人/分享餐铺满，余下差额用单品补齐。
     关键约束：若某份分享餐对某人的忌口不合法（必选轮次全是辣），就整体放弃它，
     绝不把辣餐端给明确说不吃辣的人。
     """
@@ -633,8 +637,8 @@ def _build_share_plan(people: List[Person], items: Dict[str, Item],
             break
 
     if picked is None:
-        warnings.append("没有任何一款分享餐能同时满足全组忌口，已回退为逐人单品方案")
-        return build_plan("balanced", people, items, details, budget)
+        warnings.append("没有分享餐能同时满足全组忌口，改用逐人单品方案")
+        return build_plan("value", people, items, details, budget)
 
     d = details.get(picked.code)
     n = len(people)
@@ -654,7 +658,7 @@ def _build_share_plan(people: List[Person], items: Dict[str, Item],
             if not cands:
                 warnings.append(f"{p.pid}：找不到满足忌口的主食")
                 return None
-            cands.sort(key=lambda s: rank(s, p, "balanced", set()))
+            cands.sort(key=lambda s: rank(s, p, "value", set()))
             per_person.append((p, cands[0]))
 
     sides = sorted(
@@ -676,6 +680,18 @@ def _enforce_budget(plan: Plan, budget: float) -> None:
     """超预算时，先减分享餐份数，再砍共享小食与甜品（从贵到便宜），最后如实上报。"""
     if plan.total <= budget:
         return
+    # 共享菜总额不得超过总预算的 SHARED_BUDGET_RATIO，
+    # 否则会出现"人均 50 但一半钱花在共享菜上"的方案。
+    cap = budget * SHARED_BUDGET_RATIO
+    shared_total = sum(it.price * q for it, q in plan.shared)
+    if shared_total > cap:
+        for entry in sorted(plan.shared, key=lambda x: -x[0].price * x[1]):
+            if shared_total <= cap:
+                break
+            if entry in plan.shared:
+                shared_total -= entry[0].price * entry[1]
+                plan.shared.remove(entry)
+
     # 甜品最先砍（最不必要），再砍共享小食，最后才动分享餐份数
     for phase in ("dessert", "share_side"):
         pool = [x for x in plan.shared if x[0].kind == phase]
@@ -737,10 +753,10 @@ def main(argv: List[str]) -> int:
         "detailCount": len(details),
         "plans": [],
         "notes": [
-            "金额由 MCP 返回的 currentPrice 推导，单位元；最终以 calculate-price 复核为准。",
-            "口味判定基于名称与标签文本启发式，非成分表，不构成过敏或饮食建议。",
-            "spicyUnknown=true 表示该餐品名称/标签未提供辣味信息，无法确认是否辣。",
-            "isCampaignItem=true 表示该餐品出现在 campaign-calendar 的活动文案中（文本匹配，非官方标注）。",
+            "价格来自 MCP currentPrice，最终以 calculate-price 为准。",
+            "辣味为名称/标签文本判定，非成分表，不构成过敏建议。",
+            "spicyUnknown=true 表示该餐品辣味未确认。",
+            "isCampaignItem=true 表示该餐品出现在当期活动文案中。",
         ],
     }
     for st in (data.get("strategies") or list(STRATEGIES.keys())):

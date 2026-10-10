@@ -46,13 +46,28 @@ def _row(left: str, right: str, tail: str = "") -> str:
     return f"{left}{' ' * pad}{right}{tail}"
 
 
-def _kcal_str(v) -> str:
-    """逐项热量。查不到就明说未知，不留空也不猜。"""
-    return "未知" if v is None else f"{v:.0f}kcal"
+def _kcal_str(v, meta: Dict[str, Any] = None) -> str:
+    """
+    逐项热量。查不到就明说未知，不留空也不猜。
+    估算值加 `≈` 前缀——估算绝不能看起来像精确值。
+    """
+    if v is None:
+        return "未知"
+    mark = "≈" if (meta or {}).get("estimated") else ""
+    return f"{mark}{v:.0f}kcal"
+
+
+def _kcal_note(meta: Dict[str, Any]) -> str:
+    """估算值要附来源说明，让人知道这个数怎么来的。"""
+    if not meta or not meta.get("estimated"):
+        return ""
+    src = {"估算": "估算", "组件累加": "组件累加"}.get(meta.get("source", ""), meta.get("source", ""))
+    note = meta.get("note") or ""
+    return f"（{src}{'：' + note if note else ''}）"
 
 
 def _assign_rows(plan: Dict[str, Any]):
-    """返回 (主行, 轮次行或空串, 价格, 角标, 热量, 组件明细)。"""
+    """返回 (主行, 轮次行或空串, 价格, 角标, 热量, 组件明细, 热量元信息)。"""
     out = []
     for a in plan.get("assignments", []):
         marks = []
@@ -64,7 +79,8 @@ def _assign_rows(plan: Dict[str, Any]):
         rounds = " + ".join(r["name"] for r in a.get("rounds", []))
         sub = f"        └ {rounds}" if rounds else ""
         out.append((f"  {a['person']}  {a['itemName']}", sub, a["price"], tail,
-                    a.get("kcal"), a.get("kcalComponents") or []))
+                    a.get("kcal"), a.get("kcalComponents") or [],
+                    a.get("kcalMeta") or {}))
     return out
 
 
@@ -81,27 +97,31 @@ def render_text(d: Dict[str, Any]) -> str:
         # 那样看起来像"漏标"，而不是"数据缺失"。
         n = len(p.get("assignments", [])) or 1
         known = p.get("knownKcalItems", 0)
+        est = p.get("estimatedKcalItems", 0) or 0
+        exact = p.get("exactKcalItems", 0) or 0
         total = p.get("totalKcalItems") or (len(p.get("assignments", []))
                                            + len(p.get("shared", [])))
         if known == 0:
             L.append(f"   热量合计 未知    （0/{total} 项在营养表内，查不到）")
         else:
-            L.append(f"   热量合计 {p.get('totalKcal') or 0:.0f} kcal    "
-                     f"人均 {(p.get('totalKcal') or 0)/n:.0f} kcal"
-                     + (f"    （仅含已查到的 {known}/{total} 项）" if known < total else ""))
+            line = (f"   热量合计 {p.get('totalKcal') or 0:.0f} kcal    "
+                    f"人均 {(p.get('totalKcal') or 0)/n:.0f} kcal")
+            if known < total:
+                line += f"    （精确 {exact} 项" + (f"，估算 ≈{est} 项" if est else "") + f"，缺 {total - known} 项）"
+            L.append(line)
         L.append("")
 
         rows = _assign_rows(p)
         if rows:
-            for left, sub, price, tail, kcal, comps in rows:
+            for left, sub, price, tail, kcal, comps, meta in rows:
                 L.append(_row(left, _money(price), tail))
                 # 热量紧跟价格行，轮次明细再往后——保证"每个餐品下方就有热量"
                 if comps:
                     detail = "  +  ".join(
                         f"{c['name']} {_kcal_str(c['kcal'])}" for c in comps)
-                    L.append(f"        热量 {_kcal_str(kcal)}   {detail}")
+                    L.append(f"        热量 {_kcal_str(kcal, meta)}{_kcal_note(meta)}   {detail}")
                 else:
-                    L.append(f"        热量 {_kcal_str(kcal)}")
+                    L.append(f"        热量 {_kcal_str(kcal, meta)}{_kcal_note(meta)}")
                 if sub:
                     L.append(sub)
             L.append("   " + "·" * (W - 6))
@@ -113,7 +133,8 @@ def render_text(d: Dict[str, Any]) -> str:
             word = "加配" if p.get("single") else "共享"
             qty = f" ×{sv['qty']}" if sv["qty"] > 1 else ""
             L.append(_row(f"  {word}  {sv['name']}{qty}", _money(sv["subtotal"])))
-            L.append(f"        热量 {_kcal_str(sv.get('kcalTotal'))}")
+            L.append(f"        热量 {_kcal_str(sv.get('kcalTotal'), sv.get('kcalMeta') or {})}"
+                     f"{_kcal_note(sv.get('kcalMeta') or {})}")
 
         for w in p.get("warnings", []):
             L.append("")

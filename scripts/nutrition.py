@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -132,6 +133,154 @@ def match(items: Dict[str, Any], idx: Dict[str, Nutrition]) -> Dict[str, Nutriti
         hit = idx.get(name) or norm.get(_norm(name))
         if hit:
             out[code] = hit
+    return out
+
+
+# --------------------------------------------------------------------------
+# 增强匹配：让真实营养表能覆盖到菜单上更多餐品
+# --------------------------------------------------------------------------
+# 背景：`list-nutrition-foods` 的真实数据（160 条）比旧快照多得多，
+# 但菜单名与营养表名的写法不一致，导致大量明明有数据的餐品被当成"查不到"：
+#
+#   1. 杯型后缀：菜单「可乐」      vs 表里「可乐中杯 / 大杯 / 小杯」
+#   2. 修饰词：  菜单「100% 苹果汁(盒装)」 vs 表里「100%苹果汁」
+#   3. 引号括号：菜单「“我就喜欢”鸡薯双全盒」需要归一化后才好比
+#
+# ⚠️ 一个必须避开的坑：**不能对套餐名盲目剥后缀**。
+# 「巨无霸三件套」剥掉"三件套"会变成「巨无霸」——但那是**汉堡本体 513 kcal**，
+# 不是套餐总量（约 949）。照剥会把一份套餐的热量少报 400 大卡，而且是静默的错。
+#
+# 所以 NAME_ALIAS 里的每一条都是**人工核对过**的：
+# 右边的名字在营养表里是**独立登记的完整产品**（不是"单品+后缀"），
+# 因此热量可以直接用。未列出的套餐一律不猜，走 rounds 组件累加或标未知。
+
+NAME_ALIAS: Dict[str, str] = {
+    # 500大卡系列：营养表把整套产品单独登记了，带完整营养素，可直接引用
+    "牛气满满套餐": "牛气满满",              # 495 kcal
+    "“苹板”支撑Pro套餐": "“苹板”支撑Pro",   # 476 kcal
+    # 套餐轮次里的组件名与营养表写法不同（实测 query-meal-detail 返回
+    # "可乐麦炫酷"，营养表登记为"麦旋酷阳光橙"）
+    "可乐麦炫酷": "麦旋酷阳光橙",            # 228 kcal
+}
+
+# 杯型后缀：菜单只写品名时，按默认杯型取营养表里的对应条目
+SIZE_WORDS = ("小杯", "中杯", "大杯", "小", "中", "大")
+# 同名多杯型时的默认优先级（套餐默认饮品/小食为中杯；玉米杯只有小/大，取小杯）
+SIZE_PREFERENCE = ("中杯", "小杯", "大杯")
+
+
+@dataclass
+class KcalHit:
+    """一次热量查找的结果，带来源与置信度——估算值必须能看出来是估算。"""
+    kcal: Optional[float]
+    source: str          # exact / alias / size / estimate
+    confidence: str      # 高 / 中 / 低
+    note: str = ""       # 人话说明，估算时必填
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"kcal": self.kcal, "source": self.source,
+                "confidence": self.confidence, "note": self.note}
+
+
+def _build_size_index(idx: Dict[str, Nutrition]) -> Dict[str, List[Nutrition]]:
+    """
+    给营养表建一个"去杯型"的旁路索引：品名 → 该品名的全部杯型条目。
+    前缀（中杯怡泉+C）与后缀（可乐中杯）都处理。
+
+    注意保留**列表**而不是单个值：多数品名有多个杯型且热量不同，
+    必须让上层看清有几种可能，才好决定是给值还是如实说"无法确定"。
+    """
+    out: Dict[str, List[Nutrition]] = defaultdict(list)
+    for name, row in idx.items():
+        base = None
+        for w in ("小杯", "中杯", "大杯"):
+            if name.endswith(w) and len(name) > len(w):
+                base = name[: -len(w)]
+                break
+            if name.startswith(w) and len(name) > len(w):
+                base = name[len(w):]
+                break
+        if base:
+            out[base].append(row)
+    return dict(out)
+
+
+def _pick_by_size(cands: List[Nutrition]) -> Optional[Nutrition]:
+    """多个杯型里按 中杯 → 小杯 → 大杯 的默认顺序取一个。"""
+    for pref in SIZE_PREFERENCE:
+        for row in cands:
+            if row.name.startswith(pref):
+                return row
+    return cands[0] if cands else None
+
+
+def resolve_kcal(name: str, idx: Dict[str, Nutrition],
+                 size_idx: Optional[Dict[str, List[Nutrition]]] = None,
+                 kind: str = "") -> KcalHit:
+    """
+    按置信度从高到低找热量。找不到就返回 kcal=None，**不做同类估算**。
+
+    高：名字完全一致，或命中人工核对的别名（营养表独立登记的完整产品）
+    中：菜单省略杯型，按营养表默认杯型取值；或修饰词差异（"(盒装)"）
+    低：不在此列——需调用方走 rounds 组件累加，或显式标注为估算
+
+    ⚠️ kind == "combo" 时**只认精确名与人工别名**。
+    套餐名包含单品名（"板烧鸡腿堡三件套" ⊃ "板烧鸡腿堡"）是常态，
+    若在这里做子串兜底，就会把 828 kcal 的套餐报成 391 kcal 的汉堡本体，
+    而且错得毫无痕迹。所以套餐宁可返回未知，也不做子串猜测。
+    """
+    if not name:
+        return KcalHit(None, "none", "低", "无名称")
+
+    hit = idx.get(name) or idx.get(_norm(name))
+    if hit and hit.kcal is not None:
+        return KcalHit(hit.kcal, "exact", "高")
+
+    alias = NAME_ALIAS.get(name) or NAME_ALIAS.get(_norm(name))
+    if alias and alias in idx and idx[alias].kcal is not None:
+        return KcalHit(idx[alias].kcal, "alias", "高",
+                       f"营养表独立登记为「{alias}」")
+
+    # 套餐到此为止：不做杯型推断，也不做子串兜底
+    if kind == "combo":
+        return KcalHit(None, "none", "低", "套餐需按轮次组件累加，不做名称猜测")
+
+    size_idx = size_idx if size_idx is not None else _build_size_index(idx)
+    base = name
+    for w in ("小杯", "中杯", "大杯"):
+        if name.endswith(w) and len(name) > len(w):
+            base = name[: -len(w)]
+            break
+    cands = size_idx.get(base) or size_idx.get(_norm(base))
+    if cands:
+        pick = _pick_by_size(cands)
+        if pick and pick.kcal is not None:
+            sizes = "/".join(r.name for r in cands)
+            return KcalHit(pick.kcal, "size", "中",
+                           f"菜单未标杯型，按「{pick.name}」计（表内候选：{sizes}）")
+
+    # 包含式：营养表名是菜单名的真子串（处理"(盒装)"这类修饰）
+    nb = _norm(name)
+    for rn, row in idx.items():
+        if row.kcal is None:
+            continue
+        rnb = _norm(rn)
+        if len(rnb) >= 4 and (rnb in nb) and abs(len(rnb) - len(nb)) <= 6:
+            return KcalHit(row.kcal, "alias", "中",
+                           f"对应营养表「{rn}」")
+
+    return KcalHit(None, "none", "低", "营养表内无此单品")
+
+
+def match_smart(items: Dict[str, Any],
+                idx: Dict[str, Nutrition]) -> Dict[str, KcalHit]:
+    """按菜单逐项解析热量，返回 code → KcalHit（含来源与置信度）。"""
+    size_idx = _build_size_index(idx)
+    out: Dict[str, KcalHit] = {}
+    for code, it in items.items():
+        name = getattr(it, "name", None) or (it.get("name") if isinstance(it, dict) else "")
+        kind = getattr(it, "kind", "") or ""
+        out[code] = resolve_kcal(name, idx, size_idx, kind)
     return out
 
 

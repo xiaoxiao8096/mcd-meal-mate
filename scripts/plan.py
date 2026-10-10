@@ -427,9 +427,19 @@ class Plan:
         assign: List[Dict[str, Any]] = []
         assigned_ids = {p.pid for p, _ in self.per_person}
         _sel_comps: Dict[int, List[Dict[str, Any]]] = {}
+        _sel_meta: Dict[int, Dict[str, Any]] = {}
         for _p, _s in self.per_person:
             _k, _c = kcal_of_selection(_s)
             _sel_comps[id(_s)] = _c
+            _m = kcal_meta(_s.name, _s.code, getattr(_s, "kind", ""))
+            # 套餐已按组件累加时，整体置信度取决于最弱的组件
+            if _c:
+                weakest = min((_conf_of(x["name"]) for x in _c
+                               if x.get("kcal") is not None), default="低")
+                _m["confidence"] = weakest
+                _m["estimated"] = (weakest == "低")
+                _m["source"] = "组件累加"
+            _sel_meta[id(_s)] = _m
         for person, sel in self.per_person:
             entry: Dict[str, Any] = {"productCode": sel.code, "quantity": 1}
             if sel.rounds:
@@ -453,6 +463,7 @@ class Plan:
                 "isCampaignItem": sel.code in _CAMPAIGN_CODES,
                 "kcal": sel.kcal,
                 "kcalComponents": _sel_comps.get(id(sel), []),
+                "kcalMeta": _sel_meta.get(id(sel), {}),
             })
         for g in self.groups:
             entry = {"productCode": g.code, "quantity": g.qty}
@@ -484,6 +495,9 @@ class Plan:
                         for rid, ch in g.rounds
                     ],
                     "kcalUnit": kcal_of_item(_GROUP_ITEMS.get(g.code)) if _GROUP_ITEMS.get(g.code) else None,
+                    "kcalMeta": (kcal_meta(_GROUP_ITEMS[g.code].name, _GROUP_ITEMS[g.code].code,
+                                           _GROUP_ITEMS[g.code].kind)
+                                 if _GROUP_ITEMS.get(g.code) else {}),
                 }
                 for g in self.groups
             ],
@@ -492,7 +506,8 @@ class Plan:
                  "unitPrice": it.price, "subtotal": round(it.price * q, 2),
                  "kcalUnit": kcal_of_item(it),
                  "kcalTotal": (round(kcal_of_item(it) * q, 1)
-                               if kcal_of_item(it) is not None else None)}
+                               if kcal_of_item(it) is not None else None),
+                 "kcalMeta": kcal_meta(it.name, it.code, it.kind)}
                 for it, q in self.shared
             ],
             "totalKcal": round(
@@ -500,6 +515,17 @@ class Plan:
                 + sum((kcal_of_item(it) or 0) * q for it, q in self.shared), 1),
             "knownKcalItems": sum(1 for _, s in self.per_person if s.kcal)
                               + sum(1 for it, _q in self.shared if kcal_of_item(it) is not None),
+            # 精确值与估算值分开计数：估算值不能被当成"已查到"
+            "exactKcalItems": sum(1 for _i, m in _sel_meta.items()
+                                  if m.get("kcal") is not None and not m.get("estimated"))
+                              + sum(1 for it, _q in self.shared
+                                    if kcal_meta(it.name, it.code, it.kind).get("estimated") is False
+                                    and kcal_of_item(it) is not None),
+            "estimatedKcalItems": sum(1 for _i, m in _sel_meta.items()
+                                      if m.get("kcal") is not None and m.get("estimated"))
+                                    + sum(1 for it, _q in self.shared
+                                          if kcal_meta(it.name, it.code, it.kind).get("estimated") is True
+                                          and kcal_of_item(it) is not None),
             "totalKcalItems": len(self.per_person) + len(self.shared) + len(self.groups),
             "warnings": self.warnings,
             "calculatePriceRequest": {
@@ -540,6 +566,30 @@ def candidate_selections(
     return out
 
 
+def _conf_of(key: str) -> str:
+    return _KCAL_CONF.get(key, "高")
+
+
+def kcal_lookup(name: str, code: str = "",
+                kind: str = "") -> Tuple[Optional[float], str, str, str]:
+    """
+    统一热量查询。返回 (kcal, confidence, source, note)。
+
+    查得到就用查到的；查不到再看有没有**显式登记过**的估算值（带说明）。
+    两者都没有就返回 None——绝不临时编一个数出来。
+    """
+    if code and code in _KCAL_BY_CODE:
+        return _KCAL_BY_CODE[code], _conf_of(code), "营养表", _KCAL_NOTE.get(code, "")
+    if name and name in _KCAL_BY_NAME:
+        return _KCAL_BY_NAME[name], _conf_of(name), "营养表", _KCAL_NOTE.get(name, "")
+    # 估算兜底：仅对明确登记过的项，且一定带 note 说明怎么估的
+    for key in (code, name):
+        if key and key in _KCAL_ESTIMATE:
+            val, note = _KCAL_ESTIMATE[key]
+            return val, "低", "估算", note
+    return None, "低", "无", ""
+
+
 def kcal_of(name: str, code: str,
             rounds: Optional[List[Tuple[str, "Choice"]]] = None) -> Optional[float]:
     """
@@ -566,7 +616,7 @@ def kcal_of_selection(sel: "Selection") -> Tuple[Optional[float], List[Dict[str,
     逐项热量。套餐按轮次组件累加并**保留每个组件的热量**，
     任何一环查不到就整体返回 None（不猜），组件明细仍如实给出。
     """
-    if not (_KCAL_BY_CODE or _KCAL_BY_NAME):
+    if not (_KCAL_BY_CODE or _KCAL_BY_NAME or _KCAL_ESTIMATE):
         return None, []
     if sel.rounds:
         comps = []
@@ -574,25 +624,32 @@ def kcal_of_selection(sel: "Selection") -> Tuple[Optional[float], List[Dict[str,
         for _rid, ch in sel.rounds:
             k = _KCAL_BY_NAME.get(ch.name)
             if k is None:
+                # 组件名也可能带杯型后缀（"可乐" vs 营养表"可乐中杯"），
+                # 所以组件也要走统一查询，不能只按原名查表。
+                k, _c, _s, _n = kcal_lookup(ch.name)
+            if k is None:
                 missing = True
             comps.append({"name": ch.name, "kcal": k})
         if missing:
             return None, comps
         return round(sum(c["kcal"] for c in comps if c["kcal"] is not None), 1), comps
-    k = _KCAL_BY_CODE.get(sel.code)
-    if k is None:
-        k = _KCAL_BY_NAME.get(sel.name)
+    k, _conf, _src, _note = kcal_lookup(sel.name, sel.code, getattr(sel, "kind", ""))
     return k, []
 
 
 def kcal_of_item(it: "Item") -> Optional[float]:
     """共享小食/甜品这类单品餐的热量。"""
-    if not (_KCAL_BY_CODE or _KCAL_BY_NAME):
+    if not (_KCAL_BY_CODE or _KCAL_BY_NAME or _KCAL_ESTIMATE):
         return None
-    k = _KCAL_BY_CODE.get(it.code)
-    if k is None:
-        k = _KCAL_BY_NAME.get(it.name)
+    k, _conf, _src, _n = kcal_lookup(it.name, it.code, it.kind)
     return k
+
+
+def kcal_meta(name: str, code: str = "", kind: str = "") -> Dict[str, Any]:
+    """给渲染层用：热量 + 来源 + 置信度 + 说明，估算值会被标 estimated=True。"""
+    k, conf, src, note = kcal_lookup(name, code, kind)
+    return {"kcal": k, "confidence": conf, "source": src, "note": note,
+            "estimated": bool(k is not None and conf == "低")}
 
 
 def rank(sel: Selection, person: Person, strategy: str, used: Set[str]) -> Tuple:
@@ -635,6 +692,11 @@ _CAMPAIGN_CODES: Set[str] = set()
 # 由 nutrition.py 或调用方注入。没有数据时排序退化为不看热量，绝不估算。
 _KCAL_BY_CODE: Dict[str, float] = {}
 _KCAL_BY_NAME: Dict[str, float] = {}
+# 置信度：code/name → "高"/"中"。估算值（"低"）不进这两张表，
+# 只进 _KCAL_ESTIMATE，并被渲染层标成 ≈，避免估算值冒充精确值。
+_KCAL_CONF: Dict[str, str] = {}
+_KCAL_NOTE: Dict[str, str] = {}
+_KCAL_ESTIMATE: Dict[str, Tuple[Optional[float], str]] = {}
 _KCAL_TARGET: Optional[float] = None
 
 # 此刻不可售的餐品编码（calculate-price 返回 60006 的那些）。
@@ -862,6 +924,7 @@ def main(argv: List[str]) -> int:
         _CAMPAIGN_CODES.add(str(c))
 
     _KCAL_BY_CODE.clear(); _KCAL_BY_NAME.clear()
+    _KCAL_CONF.clear(); _KCAL_NOTE.clear(); _KCAL_ESTIMATE.clear()
     for k, v in (data.get("kcalByCode") or {}).items():
         try:
             _KCAL_BY_CODE[str(k)] = float(v)
@@ -872,6 +935,18 @@ def main(argv: List[str]) -> int:
             _KCAL_BY_NAME[str(k).strip()] = float(v)
         except (TypeError, ValueError):
             pass
+    # 置信度 / 说明 / 估算值：估算单独存放，渲染时标 ≈，绝不与精确值混同
+    for k, v in (data.get("kcalConfidence") or {}).items():
+        _KCAL_CONF[str(k)] = str(v)
+    for k, v in (data.get("kcalNote") or {}).items():
+        _KCAL_NOTE[str(k)] = str(v)
+    for k, v in (data.get("kcalEstimate") or {}).items():
+        # 形如 {"kcal": 879, "note": "主餐中位+中薯+中可"}
+        if isinstance(v, dict):
+            try:
+                _KCAL_ESTIMATE[str(k)] = (float(v.get("kcal")), str(v.get("note") or ""))
+            except (TypeError, ValueError):
+                continue
     tgt = group.get("calorieTarget")
     _KCAL_TARGET = float(tgt) if tgt else None
 

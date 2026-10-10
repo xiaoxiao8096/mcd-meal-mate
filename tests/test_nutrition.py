@@ -17,6 +17,7 @@ import plan as P  # noqa: E402
 _p = _f = 0
 NUTRITION = os.path.join(ROOT, "data", "sample-nutrition.json")
 SAMPLE = os.path.join(ROOT, "data", "sample-case-4p-180.json")
+LIVE = os.path.join(ROOT, "data", "nutrition-live.txt")
 
 
 def check(name: str, cond: bool, detail: str = "") -> None:
@@ -284,10 +285,110 @@ def test_kcal_line_always():
                          "notes": []})
     lines2 = [x for x in out2.split("\n") if "热量合计" in x]
     check("注入营养数据后仍每套都有热量行", len(lines2) == 5, f"{len(lines2)}")
-    check("部分可查时标明覆盖率",
-          any("仅含已查到的" in x for x in lines2), lines2[:2])
+    # 覆盖率提示的措辞已升级：区分"精确"与"估算"（估算会带 ≈）
+    check("部分可查时标明覆盖率且区分精确/估算",
+          any(("精确" in x and "缺" in x) for x in lines2), lines2[:2])
     P._KCAL_BY_CODE.clear(); P._KCAL_BY_NAME.clear()
     N.set_index(None)
+
+
+def test_combo_never_inherits_single():
+    """
+    套餐绝不能继承单品的热量。
+
+    「板烧鸡腿堡三件套」去掉"三件套"就是「板烧鸡腿堡」(391)，
+    若做子串兜底，一份 ~827 kcal 的套餐会被报成 391 kcal——少报 400+ 大卡，
+    而且错得毫无痕迹。这条断言就是钉死这个坑。
+    """
+    print("\\n[9] 套餐不得继承单品热量（真实营养表）")
+    idx = N.build_index(N.parse(open(LIVE, encoding="utf-8").read()))
+    with open(SAMPLE, encoding="utf-8") as f:
+        data = json.load(f)
+    items = P.parse_menu(data["menu"])
+    hits = N.match_smart(items, idx)
+
+    combos = [c for c in items if items[c].kind == "combo"]
+    check("样本里有套餐可测", len(combos) > 0, str(len(combos)))
+
+    bad = []
+    for c in combos:
+        h = hits[c]
+        if h.kcal is None or h.source != "alias":
+            continue
+        # 已人工核对的别名是允许的（营养表把整套产品单独登记了），
+        # 例如「牛气满满套餐」→「牛气满满」495 是**整套餐**的真实值。
+        # 这里要拦的是"未经核对、碰巧子串命中"的误配。
+        if items[c].name in N.NAME_ALIAS:
+            continue
+        for rn, row in idx.items():
+            if row.kcal is None:
+                continue
+            if N._norm(rn) in N._norm(items[c].name) and N._norm(rn) != N._norm(items[c].name):
+                if abs((h.kcal or 0) - row.kcal) < 0.01:
+                    bad.append((items[c].name, h.kcal, rn))
+    check("没有套餐被误判成其内含单品", not bad, str(bad[:3]))
+
+    # 巨无霸三件套：营养表只有「巨无霸」513，绝不能直接返回 513
+    g = next((c for c in combos if "巨无霸三件套" in items[c].name), None)
+    if g:
+        h = hits[g]
+        check("巨无霸三件套不返回 513（汉堡本体值）",
+              h.kcal is None or h.kcal > 600, f"{h.kcal}")
+
+    # 已核对别名：500大卡系列在营养表里是独立登记的完整产品，可以引用
+    nq = next((c for c in combos if "牛气满满" in items[c].name), None)
+    if nq:
+        check("牛气满满套餐命中营养表 495", abs((hits[nq].kcal or 0) - 495) < 0.01,
+              f"{hits[nq].kcal}")
+        check("牛气满满套餐标为高置信", hits[nq].confidence == "高", hits[nq].confidence)
+
+    # 杯型补全：菜单「可乐」应命中「可乐中杯」
+    k = next((c for c in items if items[c].name == "可乐"), None)
+    if k:
+        check("可乐按中杯 147 补全", abs((hits[k].kcal or 0) - 147) < 0.01, f"{hits[k].kcal}")
+        check("可乐标为中置信（未标杯型）", hits[k].confidence == "中", hits[k].confidence)
+
+
+def test_estimate_never_masquerades():
+    """估算值必须与精确值分开存放，且渲染带 ≈ 标记。"""
+    print("\\n[10] 估算值不得冒充精确值")
+    one = [P.Person(pid="我")]
+    with open(SAMPLE, encoding="utf-8") as f:
+        data = json.load(f)
+    items = P.parse_menu(data["menu"])
+    tags = {c: it.tags for c, it in items.items()}
+    details = {}
+    for code, dd in (data["details"] or {}).items():
+        it = items.get(str(code))
+        det = P.parse_detail(dd, it.price if it else 0.0, tags)
+        if det:
+            details[str(code)] = det
+
+    P._KCAL_BY_CODE.clear(); P._KCAL_BY_NAME.clear()
+    P._KCAL_CONF.clear(); P._KCAL_NOTE.clear(); P._KCAL_ESTIMATE.clear()
+    # 注入一个估算值
+    P._KCAL_ESTIMATE["9999"] = (879.0, "测试估算")
+
+    m = P.kcal_meta("某不存在餐品", "9999")
+    check("估算值能查到", m["kcal"] == 879.0, str(m))
+    check("估算标为低置信", m["confidence"] == "低", m["confidence"])
+    check("估算标为 estimated", m["estimated"] is True, str(m))
+    check("估算带说明", bool(m["note"]), m["note"])
+    check("估算不落进精确表", "9999" not in P._KCAL_BY_CODE)
+
+    # 渲染必须带 ≈
+    import render as R
+    check("估算值渲染带 ≈", R._kcal_str(879.0, m).startswith("≈"), R._kcal_str(879.0, m))
+    check("精确值不带 ≈", not R._kcal_str(879.0, {"estimated": False}).startswith("≈"))
+    check("未知不带 ≈", R._kcal_str(None) == "未知")
+
+    # 精确值优先于估算
+    P._KCAL_BY_CODE["9999"] = 500.0
+    m2 = P.kcal_meta("某不存在餐品", "9999")
+    check("有精确值时不返回估算", m2["kcal"] == 500.0 and m2["estimated"] is False, str(m2))
+
+    P._KCAL_BY_CODE.clear(); P._KCAL_BY_NAME.clear()
+    P._KCAL_CONF.clear(); P._KCAL_NOTE.clear(); P._KCAL_ESTIMATE.clear()
 
 
 def main() -> int:
@@ -302,6 +403,8 @@ def main() -> int:
     test_coverage_gate()
     test_per_item_kcal()
     test_kcal_line_always()
+    test_combo_never_inherits_single()
+    test_estimate_never_masquerades()
     print("\n" + "=" * 62)
     print(f"通过 {_p} / 失败 {_f}")
     print("=" * 62)

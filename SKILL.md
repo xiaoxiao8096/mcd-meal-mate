@@ -211,7 +211,9 @@ python scripts/split_bill.py plans.json <策略名> [--discount 13.5]
 每套方案必须包含：
 
 1. 每个人点什么（写明轮次选配，如"随心配：高达吉士双牛堡 + 可乐麦炫酷"）
-   —— 并**逐项标出热量**，套餐要拆到组件；查不到就写「未知」，不要留空或估算
+   —— 并**逐项标出热量**，套餐要拆到组件。
+   精确值写「325kcal」；估算值必须写「≈827kcal（估算：…）」并说清每部分怎么来的；
+   营养表里确实没有才写「未知」。**估算绝不能冒充精确值。**
 2. 哪些是共享的、各几份
 3. 优惠前后总价与人均（**用 `calculate-price` 的官方值**）
 4. 没能满足的部分（如"P4 想吃鸡，但今天没有合规的鸡肉套餐可选"）
@@ -239,7 +241,7 @@ data/sample-case-4p-180.json       真实抓取样本（菜单 + 套餐详情）
 data/sample-campaigns.json         真实抓取样本（活动日历）
 data/sample-nutrition.json         真实抓取样本（营养表）
 data/sample-stores.json            真实抓取样本（门店列表）
-tests/                             180 项自测（规划 / 活动 / 分账 / 营养 / 门店）
+tests/                             196 项自测（规划 / 活动 / 分账 / 营养 / 门店）
 references/input-schema.md         引擎输入格式
 references/output-schema.md        引擎输出格式
 references/mcp-tools.md            MCP 调用规范与踩坑记录

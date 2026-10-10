@@ -1,0 +1,14 @@
+# 运行产物
+out/
+*.log
+
+# 绝不要提交真实凭证
+mcp.json
+.env
+*.token
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/

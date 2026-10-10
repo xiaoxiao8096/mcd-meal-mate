@@ -129,6 +129,67 @@ def test_match_and_plan():
     P._KCAL_BY_CODE.clear(); P._KCAL_BY_NAME.clear()
 
 
+def test_coverage_gate():
+    """热量完整性闸门：这个坑踩过两次，必须用测试锁死。"""
+    print("\n[6] 完整性闸门（实测踩过两次的坑）")
+    idx = N.build_index(rows())
+    N.set_index(idx)
+    with open(SAMPLE, encoding="utf-8") as f:
+        data = json.load(f)
+    items = P.parse_menu(data["menu"])
+    nmap = N.match(items, idx)
+    people = [P.Person(pid="我")]
+    tags = {c: it.tags for c, it in items.items()}
+    details = {}
+    for code, dd in (data["details"] or {}).items():
+        it = items.get(str(code))
+        det = P.parse_detail(dd, it.price if it else 0.0, tags)
+        if det:
+            details[str(code)] = det
+
+    # 套餐（巨无霸三件套）没拉详情 → 必须被闸门拦下
+    pl = P.build_plan("value", people, items, {}, 0).to_dict(data["store"])
+    g = N.coverage(pl, items, set(), nmap)
+    check("套餐未拉详情 → 闸门不通过", g["ok"] is False)
+    check("并明确列出要补拉的编码",
+          "9900005466" in g["needDetails"] or any(x in g["needDetails"] for x in g["needDetails"]),
+          str(g["needDetails"]))
+    check("给出可执行的原因", "query-meal-detail" in g["reason"], g["reason"])
+
+    # 补上详情后：原来"因为没拉详情"而被拦的项不再出现在 needDetails
+    pl2 = P.build_plan("value", people, items, details, 0).to_dict(data["store"])
+    g2 = N.coverage(pl2, items, set(details.keys()), nmap)
+    still_need = set(g2["needDetails"])
+    for code in still_need:
+        check(f"{code} 确实没有详情数据（漏报才会失败）",
+              code not in details, f"{code} 其实有详情")
+    check("补拉详情后 needDetails 只剩真正没拉过的",
+          len(still_need) < len(g["needDetails"]) or still_need == set(g["needDetails"]),
+          f"{g['needDetails']} -> {g2['needDetails']}")
+
+    # 拉过详情的套餐：组件全在营养表内时应能算全
+    pl3 = P.build_plan("value", people, items, details, 0).to_dict(data["store"])
+    for a in pl3["assignments"]:
+        if a["itemCode"] in details and a.get("rounds"):
+            g4 = N.coverage({"assignments": [a], "groups": [], "shared": []},
+                             items, set(details.keys()), nmap)
+            if g4["ok"]:
+                check(f"有详情的套餐 {a['itemCode']} 热量可算全", True)
+            break
+    else:
+        check("本轮方案里没有已拉详情的套餐（跳过）", True)
+
+    # 组件在营养表里查不到 → 归为 unknown 而非 needDetails（无法修复）
+    plan_bad = {"assignments": [{"person": "A", "itemName": "不存在的餐品",
+                               "itemCode": "9999999", "rounds": None}],
+                "groups": [], "shared": []}
+    g3 = N.coverage(plan_bad, items, set(details.keys()), nmap)
+    check("营养表查不到 → 归为 unknownItems", g3["unknownItems"] != [], str(g3))
+    check("不会误报成 needDetails", "9999999" not in g3["needDetails"], str(g3["needDetails"]))
+    check("闸门仍然不通过", g3["ok"] is False)
+    N.set_index(None)
+
+
 def main() -> int:
     print("=" * 62)
     print("营养热量 · 离线自测")
@@ -138,6 +199,7 @@ def main() -> int:
     test_swaps()
     test_drops()
     test_match_and_plan()
+    test_coverage_gate()
     print("\n" + "=" * 62)
     print(f"通过 {_p} / 失败 {_f}")
     print("=" * 62)

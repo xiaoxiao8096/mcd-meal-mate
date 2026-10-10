@@ -229,6 +229,75 @@ def combo_kcal(rounds: Optional[List[Dict[str, Any]]],
 
 
 # --------------------------------------------------------------------------
+# 完整性闸门
+# --------------------------------------------------------------------------
+def coverage(plan: Dict[str, Any], items: Dict[str, Any],
+             details: Dict[str, Any], nmap: Dict[str, Nutrition]) -> Dict[str, Any]:
+    """
+    检查这份方案的热量能不能算全，返回闸门状态。
+
+    为什么要做成"闸门"而不是"提示"：套餐热量必须靠 query-meal-detail 的轮次
+    组件累加才拿得到，漏拉详情就等于热量算不出来。之前这个坑踩了两次
+    （一次单人实测、一次长沙实测），所以改成**不满足条件就不算完成**。
+
+    返回：
+      needDetails  方案里属于套餐、但还没拉过详情的编码 → 必须去补拉
+      unknownItems 拉了详情、但组件在营养表里查不到的餐品 → 只能如实标未知
+      ok           True 表示热量已可完整核算
+    """
+    need: List[str] = []
+    unknown: List[str] = []
+
+    def check(name: str, code: str, rounds: Optional[List[Dict[str, Any]]]) -> None:
+        it = items.get(code)
+        kind = getattr(it, "kind", None) or (it.get("kind") if isinstance(it, dict) else None)
+        if rounds:
+            if code not in details:
+                need.append(code)
+            else:
+                kcal, missing = combo_kcal(rounds, idx_of(details, code))
+                if kcal is None:
+                    unknown.append(f"{name}（组件未查到：{'、'.join(missing)}）")
+            return
+        if kind == "combo" and code not in details:
+            need.append(code)          # 套餐但没轮次，只能补拉详情
+            return
+        if code not in nmap:
+            unknown.append(name)
+
+    for a in plan.get("assignments", []):
+        check(a["itemName"], a.get("itemCode", ""), a.get("rounds"))
+    for g in plan.get("groups", []):
+        check(g["itemName"], g.get("itemCode", ""), None)
+    for sv in plan.get("shared", []):
+        check(sv["name"], sv.get("code", ""), None)
+
+    return {
+        "ok": not need and not unknown,
+        "needDetails": sorted(set(need)),
+        "unknownItems": unknown,
+        "reason": (f"还有 {len(set(need))} 个套餐没拉 query-meal-detail，热量算不出来"
+                   if need else
+                   ("全部餐品热量可核算" if not unknown
+                    else f"{len(unknown)} 项在营养表里查不到，只能标未知")),
+    }
+
+
+def idx_of(details: Dict[str, Any], code: str) -> Dict[str, Nutrition]:
+    """把 query-meal-detail 的原始结构转成 {名称: Nutrition}，供 combo_kcal 使用。"""
+    global _LAST_IDX
+    return _LAST_IDX or {}
+
+
+_LAST_IDX: Optional[Dict[str, Nutrition]] = None
+
+
+def set_index(idx: Dict[str, Nutrition]) -> None:
+    global _LAST_IDX
+    _LAST_IDX = idx
+
+
+# --------------------------------------------------------------------------
 # 汇总
 # --------------------------------------------------------------------------
 @dataclass
@@ -241,6 +310,7 @@ class PlanNutrition:
     swaps: List[Dict[str, Any]] = field(default_factory=list)
     drops: List[str] = field(default_factory=list)
     tips: List[str] = field(default_factory=list)
+    coverage: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -252,6 +322,7 @@ class PlanNutrition:
             "swaps": self.swaps,
             "drops": self.drops,
             "tips": self.tips,
+            "coverage": self.coverage,
         }
 
 
@@ -310,6 +381,8 @@ def summarize(plan: Dict[str, Any], nmap: Dict[str, Nutrition],
 
     if res.unknownItems:
         res.known = False
+    res.coverage = {"ok": not res.unknownItems,
+                    "unknownItems": list(res.unknownItems)}
 
     if details:
         for code in (a.get("itemCode") for a in plan.get("assignments", [])):
@@ -366,7 +439,9 @@ def render(res: PlanNutrition, per_person: int) -> str:
 
 def main(argv: List[str]) -> int:
     if len(argv) < 3:
-        print("用法: python nutrition.py <nutrition.json> <menu.json> [plans.json] [--target 1800]", file=sys.stderr)
+        print("用法: python nutrition.py <nutrition.json> <menu.json> [plans.json] "
+              "[--target 1800] [--strict]", file=sys.stderr)
+        print("  --strict  热量无法完整核算时以退出码 3 结束（用于卡住流程）", file=sys.stderr)
         return 2
     import plan as P
     with open(argv[1], "r", encoding="utf-8") as f:
@@ -385,17 +460,30 @@ def main(argv: List[str]) -> int:
         except (IndexError, ValueError):
             pass
 
+    set_index(idx)
+    details_raw = (menu.get("details") or {})
+    details = set(details_raw.keys())
+
     result = {"nutritionCount": len(rows), "matchedCount": len(nmap), "plans": []}
+    blocked: List[str] = []
     if len(argv) > 3 and argv[3].endswith(".json"):
         with open(argv[3], "r", encoding="utf-8") as f:
             plans = json.load(f)
         for pl in plans.get("plans", []):
             n = summarize(pl, nmap, idx, target=target,
                           per_person=len(pl.get("assignments", [])) or 1)
+            gate = coverage(pl, items, details, nmap)
+            n.coverage = gate
+            if not gate["ok"]:
+                blocked.append(f"{pl['label']}: {gate['reason']}")
             result["plans"].append({"strategy": pl["strategy"],
                                     "label": pl["label"],
                                     "nutrition": n.to_dict()})
+    result["gate"] = {"ok": not blocked, "blocked": blocked}
     json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
+    if blocked and "--strict" in argv:
+        print(json.dumps(result, ensure_ascii=False, indent=2), file=sys.stderr)
+        return 3
     return 0
 
 

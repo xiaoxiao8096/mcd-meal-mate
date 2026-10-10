@@ -240,7 +240,7 @@ A  应付 ¥24.15
 python scripts/stores.py data/sample-stores.json --now 13:30 --city 长沙   # 选门店
 python scripts/plan.py data/sample-case-4p-180.json > plans.json
 python scripts/campaign.py data/sample-campaigns.json data/sample-case-4p-180.json plans.json
-python scripts/nutrition.py data/sample-nutrition.json data/sample-case-4p-180.json plans.json --target 1800
+python scripts/nutrition.py data/sample-nutrition.json data/sample-case-4p-180.json plans.json --target 1800 --strict
 python scripts/render.py plans.json text
 python scripts/split_bill.py plans.json value
 ```
@@ -262,7 +262,10 @@ python scripts/split_bill.py plans.json value
 
 - ⚠️ **辣味是名称与标签的关键词判定**，麦当劳没有成分表或过敏原字段。**不构成过敏建议。**
 - ⚠️ 没拉过详情的套餐标「**辣度未确认**」，而不是默认不辣。点单时自己看一眼。
-- ⚠️ **热量是参考值**，营养表只有单品没有套餐；"去酱能省多少大卡"接口没给，不编。
+- ⚠️ **热量是参考值**。营养表只有单品没有套餐，套餐靠轮次组件累加；任何一环查不到就标未知。
+- ⚠️ **营养表有滞后**：实测查不到当季新联名的龙焰鸡腿堡、高达吉士双牛堡，也查不到可乐麦炫酷、鸡薯双全盒、灰焰圆筒。新品热量进表有延迟，这部分不估。
+- ⚠️ **"去酱能省多少大卡"接口没给**，只给名称不给数字。
+- ⚠️ **价格按门店不同**：同一天的麦香鱼，衡阳那家 ¥22、长沙这家 ¥23。任何价格都现场拉，文档里的数字只对示例那家店负责。
 - ⚠️ **不下单**。只到核价为止。
 - ⚠️ 价格与供应以麦当劳官方渠道实时结果为准。
 
@@ -283,7 +286,7 @@ python scripts/split_bill.py plans.json value
 SKILL.md · MCP_INTEGRATION.md · CONTEST_DECLARATION.md
 mcp-config.example.json · workbuddy.md · SUBMIT.md
 scripts/    stores.py  plan.py  campaign.py  nutrition.py  split_bill.py  render.py
-tests/      153 项自测（规划 48 · 活动 25 · 分账 35 · 营养 32 · 门店 13）
+tests/      162 项自测（规划 48 · 活动 25 · 分账 35 · 营养 41 · 门店 13）
 data/       真实抓取样本（门店 / 菜单 / 活动 / 营养）
 references/ 输入输出格式 · MCP 踩坑 · 实测记录
 .github/    Actions：双系统 × 双版本

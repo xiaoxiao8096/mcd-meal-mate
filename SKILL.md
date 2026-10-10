@@ -154,11 +154,21 @@ calculate-price   storeCode + orderType + beType + items[]
 list-nutrition-foods
 ```
 
-**先把第 4 步补拉过详情的套餐再算**，然后：
+**这是一个循环，必须跑到闸门通过为止**，不是"顺手算一下"：
 
 ```bash
-python scripts/nutrition.py data/sample-nutrition.json data/sample-case-4p-180.json plans.json --target 1800
+python scripts/nutrition.py nutrition.json menu.json plans.json --target 1800 --strict
 ```
+
+返回里有两段信息，含义完全不同：
+
+| 字段 | 含义 | 怎么办 |
+|---|---|---|
+| `coverage.needDetails` | 方案里的套餐**还没拉过详情** | **必须去补拉** `query-meal-detail`，把结果并入 `menu.json` 的 `details` 再重跑 |
+| `coverage.unknownItems` | 拉了详情，但组件在营养表里查不到 | **无法修复**，如实标"热量未知"（见下方边界） |
+
+`--strict` 在未补全时以**退出码 3** 结束。**没拿到退出码 0 就不要往下走**，
+也别把 `totalKcal` 当成全单真实值报给用户——这个坑已经踩过两次。
 
 会给出：
 
@@ -168,13 +178,16 @@ python scripts/nutrition.py data/sample-nutrition.json data/sample-case-4p-180.j
 - **低卡替换建议**（例如 可乐中杯 147 kcal → 无糖可口可乐 0 kcal，这个换有据可依）
 - **去酱建议**：从 `modification` 里挑出可以去掉的酱料名
 
-三条诚实边界，务必守住：
+四条诚实边界，务必守住：
 
 1. 营养表**没有套餐**，套餐热量只能按轮次组件累加；**任何组件查不到就整体标未知**，
    绝不用"同类套餐大概多少"估算。
-2. **"去掉酱料能省多少大卡"接口没给**，只能推荐"可以去掉巨无霸酱"，
+2. **营养表有滞后**。实测 2026-10-10 的 160 条里**查不到**当季新联名的
+   `龙焰鸡腿堡`、`高达吉士双牛堡`，也查不到 `可乐麦炫酷`、`“我就喜欢”鸡薯双全盒`、
+   `灰焰圆筒`。新品上线后热量进表有延迟，这部分**只能标未知，不要估**。
+3. **"去掉酱料能省多少大卡"接口没给**，只能推荐"可以去掉巨无霸酱"，
    不能承诺"省 200 大卡"。
-3. 热量是**参考值**，不构成营养或医疗建议。
+4. 热量是**参考值**，不构成营养或医疗建议。
 
 若用户给了 `calorieTarget`，把它写进输入 JSON 的 `group.calorieTarget`，
 引擎会在 `light` 策略下按热量升序排，并超标时自动提醒。
@@ -222,7 +235,7 @@ data/sample-case-4p-180.json       真实抓取样本（菜单 + 套餐详情）
 data/sample-campaigns.json         真实抓取样本（活动日历）
 data/sample-nutrition.json         真实抓取样本（营养表）
 data/sample-stores.json            真实抓取样本（门店列表）
-tests/                             153 项自测（规划 / 活动 / 分账 / 营养 / 门店）
+tests/                             162 项自测（规划 / 活动 / 分账 / 营养 / 门店）
 references/input-schema.md         引擎输入格式
 references/output-schema.md        引擎输出格式
 references/mcp-tools.md            MCP 调用规范与踩坑记录

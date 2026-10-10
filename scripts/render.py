@@ -46,21 +46,25 @@ def _row(left: str, right: str, tail: str = "") -> str:
     return f"{left}{' ' * pad}{right}{tail}"
 
 
-def _assign_rows(plan: Dict[str, Any]) -> List[Tuple[str, str, float, str]]:
-    """返回 (主行, 轮次行或空串, 价格, 角标)。"""
-    out: List[Tuple[str, str, float, str]] = []
+def _kcal_str(v) -> str:
+    """逐项热量。查不到就明说未知，不留空也不猜。"""
+    return "未知" if v is None else f"{v:.0f}kcal"
+
+
+def _assign_rows(plan: Dict[str, Any]):
+    """返回 (主行, 轮次行或空串, 价格, 角标, 热量, 组件明细)。"""
+    out = []
     for a in plan.get("assignments", []):
         marks = []
         if a.get("spicyUnknown"):
             marks.append("辣度未确认")
         if a.get("isCampaignItem"):
             marks.append("当期活动")
-        if a.get("kcal"):
-            marks.append(f"{a['kcal']:.0f}kcal")
         tail = ("  " + "·".join(marks)) if marks else ""
         rounds = " + ".join(r["name"] for r in a.get("rounds", []))
         sub = f"        └ {rounds}" if rounds else ""
-        out.append((f"  {a['person']}  {a['itemName']}", sub, a["price"], tail))
+        out.append((f"  {a['person']}  {a['itemName']}", sub, a["price"], tail,
+                    a.get("kcal"), a.get("kcalComponents") or []))
     return out
 
 
@@ -75,15 +79,24 @@ def render_text(d: Dict[str, Any]) -> str:
         L.append(f"   合计 {_money(p['estimatedTotal'])}      人均 {_money(p['perCapita'])}")
         if p.get("totalKcal"):
             n = len(p.get("assignments", [])) or 1
-            L.append(f"   热量 {p['totalKcal']:.0f} kcal      人均 {p['totalKcal']/n:.0f} kcal")
+            k = p["knownKcalItems"]
+            tot = len(p.get("assignments", [])) + len(p.get("shared", []))
+            L.append(f"   热量合计 {p['totalKcal']:.0f} kcal    人均 {p['totalKcal']/n:.0f} kcal"
+                     + (f"    （{k}/{tot} 项已查到）" if k < tot else ""))
         L.append("")
 
         rows = _assign_rows(p)
         if rows:
-            for left, sub, price, tail in rows:
+            for left, sub, price, tail, kcal, comps in rows:
                 L.append(_row(left, _money(price), tail))
                 if sub:
                     L.append(sub)
+                if comps:
+                    detail = "  +  ".join(
+                        f"{c['name']} {_kcal_str(c['kcal'])}" for c in comps)
+                    L.append(f"        热量 {_kcal_str(kcal)}   {detail}")
+                else:
+                    L.append(f"        热量 {_kcal_str(kcal)}")
             L.append("   " + "·" * (W - 6))
 
         for g in p.get("groups", []):
@@ -93,6 +106,7 @@ def render_text(d: Dict[str, Any]) -> str:
             word = "加配" if p.get("single") else "共享"
             qty = f" ×{sv['qty']}" if sv["qty"] > 1 else ""
             L.append(_row(f"  {word}  {sv['name']}{qty}", _money(sv["subtotal"])))
+            L.append(f"        热量 {_kcal_str(sv.get('kcalTotal'))}")
 
         for w in p.get("warnings", []):
             L.append("")

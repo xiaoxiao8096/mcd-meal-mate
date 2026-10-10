@@ -190,6 +190,49 @@ def test_coverage_gate():
     N.set_index(None)
 
 
+def test_per_item_kcal():
+    """逐项热量必须精确到每个餐品（用户明确要求），查不到要显示未知。"""
+    print("\n[7] 逐项热量")
+    idx = N.build_index(rows())
+    N.set_index(idx)
+    with open(SAMPLE, encoding="utf-8") as f:
+        data = json.load(f)
+    items = P.parse_menu(data["menu"])
+    nmap = N.match(items, idx)
+    tags = {c: it.tags for c, it in items.items()}
+    details = {}
+    for code, d in (data["details"] or {}).items():
+        it = items.get(str(code))
+        det = P.parse_detail(d, it.price if it else 0.0, tags)
+        if det:
+            details[str(code)] = det
+    P._KCAL_BY_CODE.clear(); P._KCAL_BY_NAME.clear()
+    P._KCAL_BY_CODE.update({c: n.kcal for c, n in nmap.items() if n.kcal is not None})
+    P._KCAL_BY_NAME.update({n.name: n.kcal for n in rows() if n.kcal is not None})
+
+    one = [P.Person(pid="我")]
+    pl = P.build_plan("cheapest", one, items, details, float("inf")).to_dict(data["store"])
+    a = pl["assignments"][0]
+    check("assignment 带 kcal 字段", "kcal" in a)
+    check("assignment 带 kcalComponents 字段", "kcalComponents" in a)
+    check("逐项热量有值或明确为 None（不猜）",
+          a["kcal"] is None or isinstance(a["kcal"], (int, float)))
+    check("随心配选了轮次 → 组件明细非空", len(a["kcalComponents"]) > 0, str(a["kcalComponents"]))
+    # 组件里若有查不到的，整体必须是 None
+    missing = [c for c in a["kcalComponents"] if c["kcal"] is None]
+    if missing:
+        check("组件缺失时整体为 None", a["kcal"] is None, f"{a['kcal']} / 缺 {missing}")
+    else:
+        check("组件齐全时总量 = 各组件之和",
+              abs(a["kcal"] - sum(c["kcal"] for c in a["kcalComponents"])) < 0.05)
+    check("共享项带 kcalUnit / kcalTotal",
+          all(("kcalUnit" in sv and "kcalTotal" in sv) for sv in pl["shared"]),
+          str(pl["shared"][:1]))
+    check("方案带 knownKcalItems 覆盖率计数", "knownKcalItems" in pl)
+    P._KCAL_BY_CODE.clear(); P._KCAL_BY_NAME.clear()
+    N.set_index(None)
+
+
 def main() -> int:
     print("=" * 62)
     print("营养热量 · 离线自测")
@@ -200,6 +243,7 @@ def main() -> int:
     test_drops()
     test_match_and_plan()
     test_coverage_gate()
+    test_per_item_kcal()
     print("\n" + "=" * 62)
     print(f"通过 {_p} / 失败 {_f}")
     print("=" * 62)

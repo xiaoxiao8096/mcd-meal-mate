@@ -401,6 +401,9 @@ class Group:
         return round(self.unit_price * self.qty, 2)
 
 
+_GROUP_ITEMS: Dict[str, "Item"] = {}
+
+
 @dataclass
 class Plan:
     strategy: str
@@ -423,6 +426,10 @@ class Plan:
         items: List[Dict[str, Any]] = []
         assign: List[Dict[str, Any]] = []
         assigned_ids = {p.pid for p, _ in self.per_person}
+        _sel_comps: Dict[int, List[Dict[str, Any]]] = {}
+        for _p, _s in self.per_person:
+            _k, _c = kcal_of_selection(_s)
+            _sel_comps[id(_s)] = _c
         for person, sel in self.per_person:
             entry: Dict[str, Any] = {"productCode": sel.code, "quantity": 1}
             if sel.rounds:
@@ -445,6 +452,7 @@ class Plan:
                 "spicyUnknown": sel.spicy_unknown,
                 "isCampaignItem": sel.code in _CAMPAIGN_CODES,
                 "kcal": sel.kcal,
+                "kcalComponents": _sel_comps.get(id(sel), []),
             })
         for g in self.groups:
             entry = {"productCode": g.code, "quantity": g.qty}
@@ -475,16 +483,24 @@ class Plan:
                         {"round": rid, "code": ch.code, "name": ch.name, "diff": ch.diff}
                         for rid, ch in g.rounds
                     ],
+                    "kcalUnit": kcal_of_item(_GROUP_ITEMS.get(g.code)) if _GROUP_ITEMS.get(g.code) else None,
                 }
                 for g in self.groups
             ],
             "shared": [
                 {"code": it.code, "name": it.name, "qty": q,
-                 "unitPrice": it.price, "subtotal": round(it.price * q, 2)}
+                 "unitPrice": it.price, "subtotal": round(it.price * q, 2),
+                 "kcalUnit": kcal_of_item(it),
+                 "kcalTotal": (round(kcal_of_item(it) * q, 1)
+                               if kcal_of_item(it) is not None else None)}
                 for it, q in self.shared
             ],
-            "totalKcal": round(sum(s.kcal for _, s in self.per_person if s.kcal), 1)
+            "totalKcal": round(
+                sum(s.kcal or 0 for _, s in self.per_person)
+                + sum((kcal_of_item(it) or 0) * q for it, q in self.shared), 1)
                        if any(s.kcal for _, s in self.per_person) else None,
+            "knownKcalItems": sum(1 for _, s in self.per_person if s.kcal)
+                              + sum(1 for it, _q in self.shared if kcal_of_item(it) is not None),
             "warnings": self.warnings,
             "calculatePriceRequest": {
                 "storeCode": store.get("storeCode"),
@@ -543,6 +559,40 @@ def kcal_of(name: str, code: str,
         if rounds:
             return round(sum(_KCAL_BY_NAME[rd[1].name] for rd in rounds), 2)
     return None
+
+
+def kcal_of_selection(sel: "Selection") -> Tuple[Optional[float], List[Dict[str, Any]]]:
+    """
+    逐项热量。套餐按轮次组件累加并**保留每个组件的热量**，
+    任何一环查不到就整体返回 None（不猜），组件明细仍如实给出。
+    """
+    if not (_KCAL_BY_CODE or _KCAL_BY_NAME):
+        return None, []
+    if sel.rounds:
+        comps = []
+        missing = False
+        for _rid, ch in sel.rounds:
+            k = _KCAL_BY_NAME.get(ch.name)
+            if k is None:
+                missing = True
+            comps.append({"name": ch.name, "kcal": k})
+        if missing:
+            return None, comps
+        return round(sum(c["kcal"] for c in comps if c["kcal"] is not None), 1), comps
+    k = _KCAL_BY_CODE.get(sel.code)
+    if k is None:
+        k = _KCAL_BY_NAME.get(sel.name)
+    return k, []
+
+
+def kcal_of_item(it: "Item") -> Optional[float]:
+    """共享小食/甜品这类单品餐的热量。"""
+    if not (_KCAL_BY_CODE or _KCAL_BY_NAME):
+        return None
+    k = _KCAL_BY_CODE.get(it.code)
+    if k is None:
+        k = _KCAL_BY_NAME.get(it.name)
+    return k
 
 
 def rank(sel: Selection, person: Person, strategy: str, used: Set[str]) -> Tuple:

@@ -60,28 +60,35 @@
 
 </details>
 
-### 3.2 推送（本地提交已就绪）
+### 3.2 推送（本地提交已就绪，remote 已配好）
 
-本地已经 `git init` + 提交完成（19 个文件 / 2757 行，commit `c66ea0a`），只剩推送。
+> ⚠️ **必须走代理**。2026-10-10 14:35 实测：直连 `github.com:443` **21 秒超时失败**，
+> 走本地代理 `127.0.0.1:7897` 正常（curl 返回 HTTP 200）。
+> 直连命令会卡住然后失败。
 
-**方式一：PAT（你习惯的方式）**
+**方式一：PAT**
 
-PAT 需要勾 `repo` 权限。在 https://github.com/settings/tokens 生成。
+PAT 在 <https://github.com/settings/tokens> 生成，勾 `repo` 权限。
 
 ```bash
 cd C:/Users/14549/Desktop/麦麦/mcd-meal-mate
-git remote add origin https://你的PAT@github.com/xiaoxiao8096/mcd-meal-mate.git
-NO_PROXY='*' git -c http.proxy= -c https.proxy= push -u origin main
+git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 \
+    push -u https://你的PAT@github.com/xiaoxiao8096/mcd-meal-mate.git main
 ```
 
-> 走直连更快更稳；若卡住再加代理：
-> `HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 git push -u origin main`
->
-> 推完记得清掉 remote 里的 PAT：`git remote set-url origin https://github.com/xiaoxiao8096/mcd-meal-mate.git`
+推完把 remote 里的 PAT 清掉：
+
+```bash
+git remote set-url origin https://github.com/xiaoxiao8096/mcd-meal-mate.git
+```
+
+> 如果代理端口变了，先测一下哪个通：
+> `HTTPS_PROXY=http://127.0.0.1:7897 curl -s -o /dev/null -w "%{http_code}" https://github.com`
+> 返回 200 就是通的。
 
 **方式二：GitHub Desktop**
 
-打开 GitHub Desktop → Add existing repository → 选 `mcd-meal-mate` 目录 → Publish 上传（确认勾 Public）。
+打开 GitHub Desktop → Add existing repository → 选 `C:\Users\14549\Desktop\麦麦\mcd-meal-mate` → Publish 上传（确认勾 Public）。GitHub Desktop 走系统代理，一般不用额外配置。
 
 ### 3.3 推完验证
 

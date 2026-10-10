@@ -31,19 +31,34 @@
 
 ### 3.1 你先建仓（约 30 秒）
 
-打开 **https://github.com/new**
+**点这个预填链接**（owner / 仓库名 / 描述 / Public 都已填好）：
+
+<https://github.com/new?owner=xiaoxiao8096&name=mcd-meal-mate&description=%E9%BA%A6%E9%BA%A6%E6%8B%BC%E9%A4%90%E5%B8%88%20%E2%80%94%20%E5%9F%BA%E4%BA%8E%E9%BA%A6%E5%BD%93%E5%8A%B3%20MCP%20%E7%9A%84%E7%BE%A4%E4%BD%93%E6%8B%BC%E9%A4%90%E8%A7%84%E5%88%92%20Skill%E3%80%82%E5%9B%9B%E5%A5%97%E6%96%B9%E6%A1%88%E9%87%91%E9%A2%9D%E5%9D%87%E7%94%B1%20calculate-price%20%E5%AE%98%E6%96%B9%E6%A0%B8%E9%AA%8C%E3%80%82%E9%BA%A6%E5%BD%93%E5%8A%B3%E7%A8%8B%E5%BA%8F%E5%91%98%E5%88%9B%E6%84%8F%E5%BC%80%E5%8F%91%E5%A4%A7%E8%B5%9B%E5%8F%82%E8%B5%9B%E4%BD%9C%E5%93%81%E3%80%82&visibility=public>
+
+或手动打开 <https://github.com/new>，按此填：
 
 | 字段 | 填什么 |
 |---|---|
 | Owner | `xiaoxiao8096` |
 | Repository name | `mcd-meal-mate` |
-| Description | `麦麦拼餐师 — 基于麦当劳 MCP 的群体拼餐规划 Skill` |
-| **Visibility** | **Public** ← 私有不算数 |
+| Description | 麦麦拼餐师 — 基于麦当劳 MCP 的群体拼餐规划 Skill |
+| **Visibility** | **Public** ← 私有不算数，请务必确认 |
 | README / .gitignore / license | **全部不要勾**（本地已有，避免冲突） |
 
 点 **Create repository**。
 
 > ⚠️ **仓库创建时间必须落在 2025-12-25 00:00 ~ 2026-10-25 23:59 之间**，现在建完全没问题。
+
+<details>
+<summary>为什么这一步必须你手动？（已实测确认）</summary>
+
+| 尝试路径 | 结果 |
+|---|---|
+| GitHub 连接器 `create_repository` | `403 Resource not accessible by integration` —— App 令牌在权限模型上无法创建用户仓库 |
+| SSH 推送 | 无 `~/.ssh` 目录，`git@github.com` 返回 `Permission denied (publickey)` |
+| `gh` CLI | 未安装；git 也未配置 `credential.helper` |
+
+</details>
 
 ### 3.2 推送（本地提交已就绪）
 

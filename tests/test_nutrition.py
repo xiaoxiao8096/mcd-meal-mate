@@ -233,6 +233,63 @@ def test_per_item_kcal():
     N.set_index(None)
 
 
+def test_kcal_line_always():
+    """每套方案都必须有热量合计行——查不到也要写"未知"，不能整行不显示。
+    （用户指出过：其他方案的热量你就不标了？根因是 totalKcal 为 None 时整行被跳过。）"""
+    print("\n[8] 热量行必须每套都有（用户指出的问题）")
+    import os as _o
+    sys.path.insert(0, _o.path.join(_o.path.dirname(_o.path.dirname(
+        _o.path.abspath(__file__))), "scripts"))
+    import render as R
+    with open(SAMPLE, encoding="utf-8") as f:
+        data = json.load(f)
+    items = P.parse_menu(data["menu"])
+    tags = {c: it.tags for c, it in items.items()}
+    details = {}
+    for code, d in (data["details"] or {}).items():
+        it = items.get(str(code))
+        det = P.parse_detail(d, it.price if it else 0.0, tags)
+        if det:
+            details[str(code)] = det
+    one = [P.Person(pid="我")]
+
+    # 不注入任何营养数据 → 全部未知
+    P._KCAL_BY_CODE.clear(); P._KCAL_BY_NAME.clear()
+    plans = [P.build_plan(st, one, items, details, float("inf")).to_dict(data["store"])
+             for st in ("light", "value", "cheapest", "tasty", "share")]
+    plans = [x for x in plans if x]
+    check("五套方案都生成了", len(plans) == 5, f"{len(plans)}")
+    out = R.render_text({"store": data["store"], "plans": plans, "notes": []})
+    lines = [x for x in out.split("\n") if "热量合计" in x]
+    check("每套都有一行热量合计", len(lines) == len(plans), f"{len(lines)}/{len(plans)}")
+    check("全部未知时写明原因",
+          all("查不到" in x for x in lines), lines[:1])
+    # 热量标注在价格行的**下一行**，所以要逐行往下看，不能只查价格行本身
+    ls = out.split("\n")
+    price_idx = [i for i, x in enumerate(ls) if "¥" in x and "合计" not in x
+                 and ("  " in x) and not x.strip().startswith(("合计", "人均"))]
+    missing = [ls[i].strip()[:28] for i in price_idx
+               if i + 1 >= len(ls) or "热量" not in ls[i + 1]]
+    check("每个价格行下方都紧跟热量标注", not missing, str(missing[:3]))
+    check("确实存在逐项热量行", any("热量" in x for x in ls))
+
+    # 注入营养数据 → 有数字且带覆盖率
+    idx2 = N.build_index(rows()); N.set_index(idx2)
+    nmap2 = N.match(items, idx2)
+    P._KCAL_BY_CODE.update({c: n.kcal for c, n in nmap2.items() if n.kcal is not None})
+    P._KCAL_BY_NAME.update({n.name: n.kcal for n in rows() if n.kcal is not None})
+    plans2 = [P.build_plan(st, one, items, details, float("inf")).to_dict(data["store"])
+              for st in ("light", "value", "cheapest", "tasty", "share")]
+    out2 = R.render_text({"store": data["store"], "plans": [x for x in plans2 if x],
+                         "notes": []})
+    lines2 = [x for x in out2.split("\n") if "热量合计" in x]
+    check("注入营养数据后仍每套都有热量行", len(lines2) == 5, f"{len(lines2)}")
+    check("部分可查时标明覆盖率",
+          any("仅含已查到的" in x for x in lines2), lines2[:2])
+    P._KCAL_BY_CODE.clear(); P._KCAL_BY_NAME.clear()
+    N.set_index(None)
+
+
 def main() -> int:
     print("=" * 62)
     print("营养热量 · 离线自测")
@@ -244,6 +301,7 @@ def main() -> int:
     test_match_and_plan()
     test_coverage_gate()
     test_per_item_kcal()
+    test_kcal_line_always()
     print("\n" + "=" * 62)
     print(f"通过 {_p} / 失败 {_f}")
     print("=" * 62)

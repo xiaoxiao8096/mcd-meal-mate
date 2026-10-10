@@ -497,10 +497,10 @@ class Plan:
             ],
             "totalKcal": round(
                 sum(s.kcal or 0 for _, s in self.per_person)
-                + sum((kcal_of_item(it) or 0) * q for it, q in self.shared), 1)
-                       if any(s.kcal for _, s in self.per_person) else None,
+                + sum((kcal_of_item(it) or 0) * q for it, q in self.shared), 1),
             "knownKcalItems": sum(1 for _, s in self.per_person if s.kcal)
                               + sum(1 for it, _q in self.shared if kcal_of_item(it) is not None),
+            "totalKcalItems": len(self.per_person) + len(self.shared) + len(self.groups),
             "warnings": self.warnings,
             "calculatePriceRequest": {
                 "storeCode": store.get("storeCode"),

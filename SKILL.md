@@ -239,7 +239,7 @@ data/sample-case-4p-180.json       真实抓取样本（菜单 + 套餐详情）
 data/sample-campaigns.json         真实抓取样本（活动日历）
 data/sample-nutrition.json         真实抓取样本（营养表）
 data/sample-stores.json            真实抓取样本（门店列表）
-tests/                             173 项自测（规划 / 活动 / 分账 / 营养 / 门店）
+tests/                             180 项自测（规划 / 活动 / 分账 / 营养 / 门店）
 references/input-schema.md         引擎输入格式
 references/output-schema.md        引擎输出格式
 references/mcp-tools.md            MCP 调用规范与踩坑记录

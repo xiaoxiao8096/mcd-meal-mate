@@ -111,8 +111,8 @@
 
 ```
   A  人气经典随心配                     ¥13.90
-        └ 高达吉士双牛堡 + 可乐麦炫酷
         热量 未知   高达吉士双牛堡 未知  +  可乐麦炫酷 未知
+        └ 高达吉士双牛堡 + 可乐麦炫酷
 ```
 
 **查不到就写「未知」，不猜、不留空。** 标题行的 `（2/3 项已查到）`
@@ -303,7 +303,7 @@ python scripts/split_bill.py plans.json value
 SKILL.md · MCP_INTEGRATION.md · CONTEST_DECLARATION.md
 mcp-config.example.json · workbuddy.md · SUBMIT.md
 scripts/    stores.py  plan.py  campaign.py  nutrition.py  split_bill.py  render.py
-tests/      173 项自测（规划 52 · 活动 25 · 分账 35 · 营养 48 · 门店 13）
+tests/      180 项自测（规划 52 · 活动 25 · 分账 35 · 营养 55 · 门店 13）
 data/       真实抓取样本（门店 / 菜单 / 活动 / 营养）
 references/ 输入输出格式 · MCP 踩坑 · 实测记录
 .github/    Actions：双系统 × 双版本

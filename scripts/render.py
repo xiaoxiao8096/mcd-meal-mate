@@ -77,26 +77,33 @@ def render_text(d: Dict[str, Any]) -> str:
         L.append(f"{ico} {p['label']}  ·  {PITCH.get(p['strategy'], '')}")
         L.append("")
         L.append(f"   合计 {_money(p['estimatedTotal'])}      人均 {_money(p['perCapita'])}")
-        if p.get("totalKcal"):
-            n = len(p.get("assignments", [])) or 1
-            k = p["knownKcalItems"]
-            tot = len(p.get("assignments", [])) + len(p.get("shared", []))
-            L.append(f"   热量合计 {p['totalKcal']:.0f} kcal    人均 {p['totalKcal']/n:.0f} kcal"
-                     + (f"    （{k}/{tot} 项已查到）" if k < tot else ""))
+        # 热量合计行**始终显示**。算不出来就写"未知"，不能因为没有数字就不显示——
+        # 那样看起来像"漏标"，而不是"数据缺失"。
+        n = len(p.get("assignments", [])) or 1
+        known = p.get("knownKcalItems", 0)
+        total = p.get("totalKcalItems") or (len(p.get("assignments", []))
+                                           + len(p.get("shared", [])))
+        if known == 0:
+            L.append(f"   热量合计 未知    （0/{total} 项在营养表内，查不到）")
+        else:
+            L.append(f"   热量合计 {p.get('totalKcal') or 0:.0f} kcal    "
+                     f"人均 {(p.get('totalKcal') or 0)/n:.0f} kcal"
+                     + (f"    （仅含已查到的 {known}/{total} 项）" if known < total else ""))
         L.append("")
 
         rows = _assign_rows(p)
         if rows:
             for left, sub, price, tail, kcal, comps in rows:
                 L.append(_row(left, _money(price), tail))
-                if sub:
-                    L.append(sub)
+                # 热量紧跟价格行，轮次明细再往后——保证"每个餐品下方就有热量"
                 if comps:
                     detail = "  +  ".join(
                         f"{c['name']} {_kcal_str(c['kcal'])}" for c in comps)
                     L.append(f"        热量 {_kcal_str(kcal)}   {detail}")
                 else:
                     L.append(f"        热量 {_kcal_str(kcal)}")
+                if sub:
+                    L.append(sub)
             L.append("   " + "·" * (W - 6))
 
         for g in p.get("groups", []):

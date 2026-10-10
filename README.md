@@ -265,6 +265,7 @@ python scripts/split_bill.py plans.json value
 - ⚠️ **热量是参考值**。营养表只有单品没有套餐，套餐靠轮次组件累加；任何一环查不到就标未知。
 - ⚠️ **营养表有滞后**：实测查不到当季新联名的龙焰鸡腿堡、高达吉士双牛堡，也查不到可乐麦炫酷、鸡薯双全盒、灰焰圆筒。新品热量进表有延迟，这部分不估。
 - ⚠️ **"去酱能省多少大卡"接口没给**，只给名称不给数字。
+- ⚠️ **菜单里列着 ≠ 现在能点**。`query-meals` 会返回已售罄的商品且不标注，只有 `calculate-price` 会以 `60006` 拒绝。实测遇到过人气经典随心配在菜单里但已售完。命中后会自动排除并重排。
 - ⚠️ **价格按门店不同**：同一天的麦香鱼，衡阳那家 ¥22、长沙这家 ¥23。任何价格都现场拉，文档里的数字只对示例那家店负责。
 - ⚠️ **不下单**。只到核价为止。
 - ⚠️ 价格与供应以麦当劳官方渠道实时结果为准。
@@ -286,7 +287,7 @@ python scripts/split_bill.py plans.json value
 SKILL.md · MCP_INTEGRATION.md · CONTEST_DECLARATION.md
 mcp-config.example.json · workbuddy.md · SUBMIT.md
 scripts/    stores.py  plan.py  campaign.py  nutrition.py  split_bill.py  render.py
-tests/      162 项自测（规划 48 · 活动 25 · 分账 35 · 营养 41 · 门店 13）
+tests/      166 项自测（规划 52 · 活动 25 · 分账 35 · 营养 41 · 门店 13）
 data/       真实抓取样本（门店 / 菜单 / 活动 / 营养）
 references/ 输入输出格式 · MCP 踩坑 · 实测记录
 .github/    Actions：双系统 × 双版本

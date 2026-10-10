@@ -147,6 +147,9 @@ calculate-price   storeCode + orderType + beType + items[]
 - `productList[]` 是逐项小计，用来核对引擎的分摊有没有算错。
 - `discount` 是优惠金额；`enjoyable.balance` 是"门槛差额"，即还差多少钱能用券——这是凑单提示最实用的数据。
 - **官方价与引擎预估不一致时，以官方价为准**，并如实告诉用户差在哪。
+- **`calculate-price` 返回 `60006 商品已售罄或不可售` 时**（实测真实遇到过：合肥工业大学店的
+  人气经典随心配菜单里列着、但此刻已售罄），把这个编码加进输入 JSON 的 `soldOut` 列表，
+  重跑引擎出方案，并把"菜单里有但卖完了"告诉用户。**菜单里列着 ≠ 现在能点。**
 
 ### 第 8 步：算热量（用户提了减脂/热量就必须做）
 
@@ -235,7 +238,7 @@ data/sample-case-4p-180.json       真实抓取样本（菜单 + 套餐详情）
 data/sample-campaigns.json         真实抓取样本（活动日历）
 data/sample-nutrition.json         真实抓取样本（营养表）
 data/sample-stores.json            真实抓取样本（门店列表）
-tests/                             162 项自测（规划 / 活动 / 分账 / 营养 / 门店）
+tests/                             166 项自测（规划 / 活动 / 分账 / 营养 / 门店）
 references/input-schema.md         引擎输入格式
 references/output-schema.md        引擎输出格式
 references/mcp-tools.md            MCP 调用规范与踩坑记录

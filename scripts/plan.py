@@ -503,6 +503,8 @@ def candidate_selections(
 ) -> List[Selection]:
     out: List[Selection] = []
     for code, it in items.items():
+        if code in _SOLD_OUT:
+            continue
         if it.kind not in ("combo", "main") or it.price <= 0:
             continue
         if spicy_conflict(person, it.flavour):
@@ -584,6 +586,10 @@ _CAMPAIGN_CODES: Set[str] = set()
 _KCAL_BY_CODE: Dict[str, float] = {}
 _KCAL_BY_NAME: Dict[str, float] = {}
 _KCAL_TARGET: Optional[float] = None
+
+# 此刻不可售的餐品编码（calculate-price 返回 60006 的那些）。
+# 实测：菜单里照样列着，但下单会失败——所以必须由核价反馈回来再重排。
+_SOLD_OUT: Set[str] = set()
 
 
 def _is_complete(sel: Selection) -> bool:
@@ -829,9 +835,14 @@ def main(argv: List[str]) -> int:
             "辣味为名称/标签文本判定，非成分表，不构成过敏建议。",
             "spicyUnknown=true 表示该餐品辣味未确认。",
             "isCampaignItem=true 表示该餐品出现在当期活动文案中。",
+            "soldOut 列出的餐品按此刻不可售处理，不会进入方案（菜单里列着≠能点）。",
             "kcal=null 表示营养表里查不到该餐品，未做任何估算。",
         ],
     }
+    _SOLD_OUT.clear()
+    for c in (data.get("soldOut") or []):
+        _SOLD_OUT.add(str(c))
+
     for st in (data.get("strategies") or list(STRATEGIES.keys())):
         plan = build_plan(st, people, items, details, budget)
         if plan:

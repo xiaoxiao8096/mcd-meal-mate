@@ -190,6 +190,42 @@ def test_single_person():
           all(q <= 1 for _, q in d2.shared), str([(i.name, q) for i, q in d2.shared]))
 
 
+def test_sold_out():
+    """售罄排除（实测：人气经典随心配在合肥店菜单里有但已售罄，60006）"""
+    print("\n[10] 售罄商品排除")
+    import json as _j, os as _o
+    sample = _o.path.join(_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))),
+                          "data", "sample-case-4p-180.json")
+    with open(sample, encoding="utf-8") as f:
+        data = _j.load(f)
+    items = P.parse_menu(data["menu"])
+    tags = {c: it.tags for c, it in items.items()}
+    details = {}
+    for code, d in (data["details"] or {}).items():
+        it = items.get(str(code))
+        det = P.parse_detail(d, it.price if it else 0.0, tags)
+        if det:
+            details[str(code)] = det
+    one = [P.Person(pid="我")]
+
+    P._SOLD_OUT.clear()
+    a = P.build_plan("cheapest", one, items, details, float("inf"))
+    check("默认会把人气经典随心配选进去（售罄但菜单里有）",
+          any("人气经典随心配" in s.name for _, s in a.per_person),
+          str([s.name for _, s in a.per_person]))
+
+    P._SOLD_OUT.add("9900013304")
+    b = P.build_plan("cheapest", one, items, details, float("inf"))
+    check("标记售罄后不再选它",
+          all("人气经典随心配" not in s.name for _, s in b.per_person),
+          str([s.name for _, s in b.per_person]))
+    check("并且换成了别的可售选项",
+          any(s.code != "9900013304" for _, s in b.per_person))
+    check("换完之后总价不高于原方案",
+          b.total <= a.total + 1e-6, f"{b.total} vs {a.total}")
+    P._SOLD_OUT.clear()
+
+
 def main() -> int:
     print("=" * 62)
     print("麦麦拼餐师 · 离线自测")
@@ -202,6 +238,7 @@ def main() -> int:
     test_share_meal_rejected(items, details, people)
     test_budget()
     test_single_person()
+    test_sold_out()
     print("\n" + "=" * 62)
     print(f"通过 {_passed} / 失败 {_failed}")
     print("=" * 62)

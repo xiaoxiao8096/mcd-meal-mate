@@ -83,7 +83,23 @@ query-meal-detail   storeCode + orderType + beType + code
 
 参考：`references/which-details-to-fetch.md` 说明了哪些餐品值得拉详情。
 
-### 第 5 步：交给规划引擎
+### 第 5 步：识别当季活动（推荐，成本极低）
+
+```
+campaign-calendar   可选 specifiedDate=yyyy-MM-dd
+```
+
+麦当劳的活动话术会渗进菜单名（活动叫「就「酱」心有所「薯」」，菜单里就多一个「鸡薯双全盒」）。
+拉一次活动日历，把结果交给 `scripts/campaign.py`，它会：
+
+- 剥掉「“我就喜欢”」这类引号前缀与「三件套」这类通用后缀，拿核心词匹配活动文案
+- 输出 `campaignCodes`，回注给引擎的输入 JSON
+- 顺带提取营销话术与谐音梗落点
+
+`campaignCodes` 只影响 `tasty` 策略（活动限定品优先）；`cheapest` 与 `balanced`
+保持价格优先，不被活动带偏。
+
+### 第 6 步：交给规划引擎
 
 把菜单、详情、群体信息写成 JSON（格式见 `references/input-schema.md`），然后：
 
@@ -96,7 +112,7 @@ python scripts/render.py plans.json request     # 核价请求体
 
 引擎会输出**四套**方案：`cheapest`（极致省钱）、`balanced`（均衡）、`tasty`（口味优先）、`share`（多人分享）。
 
-### 第 6 步：用 calculate-price 逐套核价（不可跳过）
+### 第 7 步：用 calculate-price 逐套核价（不可跳过）
 
 把 `render.py ... request` 输出的每个策略请求体，原样丢给 `calculate-price`：
 
@@ -109,7 +125,18 @@ calculate-price   storeCode + orderType + beType + items[]
 - `discount` 是优惠金额；`enjoyable.balance` 是"门槛差额"，即还差多少钱能用券——这是凑单提示最实用的数据。
 - **官方价与引擎预估不一致时，以官方价为准**，并如实告诉用户差在哪。
 
-### 第 7 步：输出
+### 第 8 步：分账（可选但强烈建议）
+
+```
+python scripts/split_bill.py plans.json <策略名> [--discount 13.5]
+```
+
+整数分运算的零尾差分摊：个人餐归本人、共享餐全桌均分、分享餐在成员间分、
+整单优惠按人数均摊。每一步都断言合计与实付分毫不差。
+
+把 `--discount` 填上 `query-store-coupons` 查到的优惠金额。
+
+### 第 9 步：输出
 
 每套方案必须包含：
 
@@ -132,8 +159,12 @@ calculate-price   storeCode + orderType + beType + items[]
 
 ```
 scripts/plan.py                    规划引擎（纯离线，无网络）
+scripts/campaign.py                活动感知：识别当季活动限定品 + 提取营销话术
+scripts/split_bill.py              零尾差 AA 分账（整数分运算）
 scripts/render.py                  方案渲染（文本 / Markdown / 核价请求体）
-data/sample-case-4p-180.json       真实抓取样本，用于离线自测
+data/sample-case-4p-180.json       真实抓取样本（菜单 + 套餐详情）
+data/sample-campaigns.json         真实抓取样本（活动日历）
+tests/                             102 项自测（规划 / 活动 / 分账）
 references/input-schema.md         引擎输入格式
 references/output-schema.md        引擎输出格式
 references/mcp-tools.md            MCP 调用规范与踩坑记录
@@ -144,8 +175,7 @@ references/verified-run-2026-10-10.md  一次真实跑通的完整记录
 自测：
 
 ```bash
-python scripts/plan.py data/sample-case-4p-180.json > /tmp/plans.json
-python scripts/render.py /tmp/plans.json text
+python tests/test_plan.py && python tests/test_split_bill.py && python tests/test_campaign.py
 ```
 
 引擎是纯计算，不联网、不需要 Token，可直接离线运行。

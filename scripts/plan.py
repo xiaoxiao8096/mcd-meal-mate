@@ -435,6 +435,7 @@ class Plan:
                 ],
                 "price": sel.price,
                 "spicyUnknown": sel.spicy_unknown,
+                "isCampaignItem": sel.code in _CAMPAIGN_CODES,
             })
         for g in self.groups:
             entry = {"productCode": g.code, "quantity": g.qty}
@@ -520,15 +521,24 @@ def rank(sel: Selection, person: Person, strategy: str, used: Set[str]) -> Tuple
         # 避免为了省 0.4 元给出一个只有干巴巴一个汉堡的方案。
         bucket = int(-(-sel.price // 2))
         return (dup, bucket, 0 if sel.flavour is not None and _is_complete(sel) else 1, sel.price, pref)
+    camp = 0 if sel.code in _CAMPAIGN_CODES else 1
     if strategy == "balanced":
+        # 均衡 = 价格优先。活动限定品只做标注，不改变选择，
+        # 否则"均衡"会被活动加成拉高，与"极致省钱"失去区分度。
         return (dup, pref, is_rich, sel.price)
     if strategy == "tasty":
-        return (dup, pref, is_rich, -sel.price)
+        # 口味优先 = 活动优先。命中个人偏好 > 活动限定 > 套餐丰富度 > 价格，
+        # 因为"想吃点好的"往往意味着想尝当季新品，而不是买最贵的常规款。
+        return (dup, pref, camp, is_rich, -sel.price)
     # share：优先能覆盖多人份的
     return (dup, pref, is_share, is_rich, sel.price)
 
 
 _COMPLETE_CACHE: Dict[str, bool] = {}
+# campaign-calendar 判定为"活动关联"的餐品编码。由输入 JSON 的 campaignCodes 注入。
+# 作用：口味优先/均衡策略下，活动限定品获得优先级——大家正在吃的就是这些，
+#       推当季新品比推常规款更有价值。
+_CAMPAIGN_CODES: Set[str] = set()
 
 
 def _is_complete(sel: Selection) -> bool:
@@ -714,6 +724,13 @@ def main(argv: List[str]) -> int:
         people = [Person(pid=f"P{i+1}") for i in range(int(group.get("headcount") or 2))]
     budget = float(group.get("budget") or 0) or float("inf")
 
+    # 活动关联餐品：由 campaign.py 产出 campaignCodes 后注入。
+    # 必须在这里统一注入一次——build_plan 每个策略都会调用，
+    # 若在其内部清空集合，后续策略将看不到任何活动数据。
+    _CAMPAIGN_CODES.clear()
+    for c in (data.get("campaignCodes") or []):
+        _CAMPAIGN_CODES.add(str(c))
+
     result = {
         "store": store,
         "menuItemCount": len(items),
@@ -723,6 +740,7 @@ def main(argv: List[str]) -> int:
             "金额由 MCP 返回的 currentPrice 推导，单位元；最终以 calculate-price 复核为准。",
             "口味判定基于名称与标签文本启发式，非成分表，不构成过敏或饮食建议。",
             "spicyUnknown=true 表示该餐品名称/标签未提供辣味信息，无法确认是否辣。",
+            "isCampaignItem=true 表示该餐品出现在 campaign-calendar 的活动文案中（文本匹配，非官方标注）。",
         ],
     }
     for st in (data.get("strategies") or list(STRATEGIES.keys())):

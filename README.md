@@ -33,8 +33,11 @@
 | 忌口判定 | 靠餐品名关键词猜 | 读 `query-meal-detail` 的官方 `choices`，**逐轮判定合法性** |
 | 套餐内优化 | 无 | 解析 `diffPrice`，**自动挑负差价选项** |
 | 约束无解时 | 硬凑，或照常推荐 | **必选轮次全违规则整份弃用并回退** |
+| 当季活动 | 无，或人工挑 | `campaign-calendar` **自动识别活动限定品**并参与决策 |
+| AA 分账 | 常缺失 | **整数分运算的零尾差分摊**，合计与实付分毫不差 |
 | 没验证过的信息 | 默认"不辣" | 标注 `spicyUnknown`，**不下结论** |
 | 定价可信度 | 本地估算 | 四套方案**全部经 `calculate-price` 官方核验**，附实测记录 |
+| 自动化 | 无 | GitHub Actions：4 组合（双系统 × 双版本）跑 102 项自测 |
 
 ### 举三个真实的例子
 
@@ -56,6 +59,64 @@
 - 巨无霸三件套（选小杯玉米杯）= **¥36.5** → **省 15.5 元**
 
 引擎会自动找这类差价并选它。所以"极致省钱"策略**优先套餐而不是拿裸单品拼**——这是只看餐品价格永远算不出来的。
+
+---
+
+## 跟着当季活动走
+
+麦当劳的活动话术会渗进菜单名：活动叫「就「酱」心有所「薯」」，菜单里就多一个「鸡薯双全盒」；活动叫「“韩”风刮到了四件套」，菜单里就多一整个「龙焰鸡腿堡」系列。
+
+所以本项目会拉 `campaign-calendar`，把**当前正在跑的活动**和菜单对上号：
+
+```
+$ python scripts/campaign.py data/sample-campaigns.json data/sample-case-4p-180.json plans.json
+```
+
+2026-10-10 实测识别结果：
+
+| 状态 | 餐品 | 来自哪条活动 |
+|---|---|---|
+| today | 龙焰鸡腿堡三件套 | 麦当劳联动 G-DRAGON |
+| today | 龙焰芝士棒鸡腿堡 | 麦当劳联动 G-DRAGON |
+| today | 蓝莓爆爆珠麦旋风 | 🫐一口爆汁！蓝莓爆爆珠麦旋风上新 |
+| today | 灰焰圆筒 | 🩶灰白撞色，灰焰圆筒酷爽登场 |
+| today | “我就喜欢”鸡薯双全盒 | 韩式风味蘸酱上新 |
+
+**做了三件事：**
+
+1. **识别** —— 剥掉「“我就喜欢”」这类引号前缀和「三件套」这类通用后缀，拿核心词去活动文案里匹配
+2. **提取话术** —— 顺带把营销话术抽出来，包括谐音梗的落点（`就「酱」心有所「薯」` → `['酱','薯']`）
+3. **参与决策** —— 「口味优先」策略下活动限定品获得优先级；「极致省钱」和「均衡」**不受影响**，因为它们的价格优先语义不该被活动带偏
+
+**设计成活动无关**：不写死「世界杯」「春节」这类具体活动，换成任何联名、节庆、暑期活动都自动生效，改代码都不用。
+
+⚠️ 这是**文本匹配**，不是官方标注。匹配上只能说「活动文案里提到过它」，不能断言「这就是限定款」，所以输出统一叫「活动关联」。
+
+---
+
+## 分账：整数分运算，零尾差
+
+点完餐总要分账，而这是最容易出错的地方——浮点数在钱上不可靠，`0.1 + 0.2 != 0.3`，`13.9 / 3 = 4.6333...`，四舍五入之后经常差几分。
+
+本模块**全程用整数分**运算，余数按固定顺序分配：
+
+```
+$ python scripts/split_bill.py plans.json cheapest
+```
+
+```
+P1  应付 ¥24.15
+    ¥13.90  人气经典随心配（高达吉士双牛堡 + 可乐麦炫酷）
+    ¥15.90  “我就喜欢”鸡薯双全盒 ×2（共享）
+    -¥5.70  整单优惠均摊
+P2  应付 ¥24.15
+    ...
+合计   ¥96.60
+人均   ¥24.15
+校验   ✅ 零尾差，合计与实付分毫不差
+```
+
+分摊规则：个人专属餐归本人 → 共享餐全桌均分 → 分享餐只在成员间分 → 整单优惠按人数均摊。**每一步都断言 `sum(每人) == 实付`**，一分不差。
 
 ---
 
@@ -252,18 +313,48 @@ python scripts/render.py plans.json request    # 四套 calculate-price 请求�
 ├── CONTEST_DECLARATION.md            参赛声明（官方原文）
 ├── mcp-config.example.json           脱敏配置（仅环境变量占位符）
 ├── workbuddy.md                      WorkBuddy 联动记录（Token 已脱敏）
+├── SUBMIT.md / SUBMIT_ISSUE.md       报名清单与 Issue 文案
+├── .github/workflows/ci.yml          GitHub Actions（双系统 × 双版本）
 ├── scripts/
 │   ├── plan.py                       规划引擎：分类、约束、四策略、预算裁剪
+│   ├── campaign.py                   活动感知：识别当季活动限定品 + 提取营销话术
+│   ├── split_bill.py                 零尾差 AA 分账（整数分运算）
 │   └── render.py                     方案渲染：文本 / Markdown / 核价请求体
 ├── data/
-│   └── sample-case-4p-180.json       真实抓取样本（离线自测用）
+│   ├── sample-case-4p-180.json       真实抓取样本（菜单 + 套餐详情）
+│   └── sample-campaigns.json         真实抓取样本（活动日历）
+├── tests/
+│   ├── test_plan.py                  规划引擎自测
+│   ├── test_campaign.py              活动感知自测
+│   └── test_split_bill.py            分账自测
 └── references/
     ├── input-schema.md               引擎输入格式
     ├── output-schema.md              引擎输出格式
-    ├── mcp-tools.md                  MCP 调用规范与 9 个实测踩坑
+    ├── mcp-tools.md                  MCP 调用规范与踩坑记录
     ├── which-details-to-fetch.md     该拉哪些套餐详情
     └── verified-run-2026-10-10.md    一次真实跑通的完整记录
 ```
+
+## 跑起来
+
+```bash
+# 1. 生成四套方案
+python scripts/plan.py data/sample-case-4p-180.json > plans.json
+
+# 2. 识别当季活动限定品，并把 campaignCodes 回注给引擎
+python scripts/campaign.py data/sample-campaigns.json data/sample-case-4p-180.json plans.json > campaign.json
+
+# 3. 渲染
+python scripts/render.py plans.json text
+
+# 4. 分账（零尾差）
+python scripts/split_bill.py plans.json cheapest
+
+# 5. 自测（102 项）
+python tests/test_plan.py && python tests/test_split_bill.py && python tests/test_campaign.py
+```
+
+引擎全部**纯离线**，不联网、不需要 Token，用真实抓取样本即可完整回归。
 
 ## 安全与合规
 

@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.9', '3.13']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Show environment
+        run: python -VV
+
+      - name: Syntax check
+        run: python -m compileall -q scripts tests
+
+      - name: Unit tests
+        run: python tests/test_plan.py
+
+      - name: Split-bill self-check
+        run: python tests/test_split_bill.py
+
+      - name: Campaign self-check
+        run: python tests/test_campaign.py
+
+      - name: End-to-end offline run
+        shell: bash
+        run: |
+          python scripts/plan.py data/sample-case-4p-180.json > plans.json
+          python scripts/render.py plans.json text
+          python scripts/campaign.py data/sample-campaigns.json data/sample-case-4p-180.json plans.json > campaign.json
+          python scripts/split_bill.py plans.json cheapest
+          rm -f plans.json campaign.json

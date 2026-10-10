@@ -1,6 +1,6 @@
 ---
 name: mcd-meal-mate
-description: 给一群人按预算配出各自想吃的麦当劳餐，并算出优惠前后的人均花费。当用户说"我们四个人点麦当劳"、"帮我凑单"、"预算 180 以内怎么吃"、"谁能吃辣谁不吃辣"、"拼餐怎么配划算"时使用。基于麦当劳 MCP 的实时菜单与套餐选配数据，输出性价比首选/极致省钱/当季尝鲜/多人拼单四套方案，总价一律由 calculate-price 官方核价。
+description: 给一群人按预算配出各自想吃的麦当劳餐，先选门店再配餐，算出优惠与人均花费，也能按热量目标做减脂搭配。当用户说"我们四个人点麦当劳"、"帮我凑单"、"预算 180 以内怎么吃"、"谁能吃辣谁不吃辣"、"拼餐怎么配划算"时使用。基于麦当劳 MCP 的实时菜单与套餐选配数据，输出性价比首选/极致省钱/当季尝鲜/多人拼单/轻食低卡五套方案，价格由 calculate-price 官方核价，热量由 list-nutrition-foods 核算。
 ---
 
 # 麦麦拼餐师
@@ -29,30 +29,41 @@ description: 给一群人按预算配出各自想吃的麦当劳餐，并算出�
 
 ## 工作流
 
-### 第 1 步：把需求问清楚，缺一项就问
+### 第 1 步：先问人在哪
 
-必需信息（缺哪项问哪项，不要瞎猜）：
+**流程从选门店开始**，没有门店就没有菜单、没有价格、没有券。
 
-| 要素 | 说明 | 缺失时 |
-|---|---|---|
-| 人数 | 精确人数 | 必须问 |
-| 总预算 | 人民币金额 | 必须问 |
-| 门店 | 城市 + 位置关键词，或直接选附近门店 | 必须问 |
-| 就餐方式 | 堂食 / 外带（`beType=1`）/ 得来速（`beType=5`）/ 外送 | 默认问，别擅自决定 |
-| 每人口味与忌口 | 谁不吃辣、谁想吃鸡、谁吃素 | 至少问忌口 |
+问清楚这几项，缺哪问哪：
 
-### 第 2 步：定位门店
+| 要素 | 缺失时 |
+|---|---|
+| 城市 + 位置关键词（或直接给门店名） | 必须问 |
+| 人数、就餐方式（`beType`） | 必须问 |
+| 堂食 / 外带 / 得来速 / 外送 | 默认问，别擅自决定 |
+| 总预算 | 必须问 |
+| 每人口味与忌口 | 至少问忌口 |
+| 热量目标（可选，减脂时才问） | 没提就不问 |
+
+### 第 2 步：查附近门店并优选
 
 ```
-query-nearby-stores
-  beType     : 1（到店自取）或 5（得来速）
-  searchType : 2
-  city       : 城市名
-  keyword    : 位置关键词（如"湖南工商大学南校区"）
+now-time-info         先拿当前时间，后面判营业状态要用
+query-nearby-stores   beType + searchType=2 + city + keyword
 ```
 
-把 `storeCode`（`beType=5` 时还要 `beCode`）完整展示给用户，让用户确认门店。
-注意：`beType=1` 时返回的门店不含 `beCode`，后续调用**不要传** `beCode`，传了会报错。
+拿到一批店之后交给 `scripts/stores.py`，它会：
+
+- **滤掉此刻已打烊的**（用 `businessStartTime`/`businessEndTime` 比对，跨零点也正确）
+- 按距离排序，标出**是否支持预约**、今天还剩哪些时段
+- 给一句话推荐
+
+```bash
+python scripts/stores.py stores.json --now 13:30 --today 2026-10-10
+```
+
+**把推荐结果给用户确认后再往下走。** 门店是整单的基准，选错了后面全白算。
+
+`beType=1` 时返回的门店不含 `beCode`，后续调用**不要传** `beCode`，传了会报错。
 
 ### 第 3 步：核对优惠券（用户想用券时才做）
 
@@ -82,6 +93,10 @@ query-meal-detail   storeCode + orderType + beType + code
 **这些官方候选是解决忌口问题的关键**——不吃辣的人应该在候选里挑，而不是靠猜。
 
 参考：`references/which-details-to-fetch.md` 说明了哪些餐品值得拉详情。
+
+> ⚠️ **详情要拉两轮**：第一轮拉几个候选用来出方案；出方案后**再给方案里
+> 实际用到、但还没拉过详情的套餐补拉一次**。因为 `list-nutrition-foods`
+> 的营养表里**只有单品、没有套餐**，不补拉详情就没法算套餐热量。
 
 ### 第 5 步：识别当季活动（推荐，成本极低）
 
@@ -124,7 +139,38 @@ calculate-price   storeCode + orderType + beType + items[]
 - `discount` 是优惠金额；`enjoyable.balance` 是"门槛差额"，即还差多少钱能用券——这是凑单提示最实用的数据。
 - **官方价与引擎预估不一致时，以官方价为准**，并如实告诉用户差在哪。
 
-### 第 8 步：分账（可选但强烈建议）
+### 第 8 步：算热量（用户提了减脂/热量就必须做）
+
+```
+list-nutrition-foods
+```
+
+**先把第 4 步补拉过详情的套餐再算**，然后：
+
+```bash
+python scripts/nutrition.py data/sample-nutrition.json data/sample-case-4p-180.json plans.json --target 1800
+```
+
+会给出：
+
+- 每道菜的热量与**套餐各组件的累加过程**
+- 方案总热量 / 人均热量
+- 与用户给定热量目标的对比和提醒
+- **低卡替换建议**（例如 可乐中杯 147 kcal → 无糖可口可乐 0 kcal，这个换有据可依）
+- **去酱建议**：从 `modification` 里挑出可以去掉的酱料名
+
+三条诚实边界，务必守住：
+
+1. 营养表**没有套餐**，套餐热量只能按轮次组件累加；**任何组件查不到就整体标未知**，
+   绝不用"同类套餐大概多少"估算。
+2. **"去掉酱料能省多少大卡"接口没给**，只能推荐"可以去掉巨无霸酱"，
+   不能承诺"省 200 大卡"。
+3. 热量是**参考值**，不构成营养或医疗建议。
+
+若用户给了 `calorieTarget`，把它写进输入 JSON 的 `group.calorieTarget`，
+引擎会在 `light` 策略下按热量升序排，并超标时自动提醒。
+
+### 第 9 步：分账（可选但强烈建议）
 
 ```
 python scripts/split_bill.py plans.json <策略名> [--discount 13.5]
@@ -135,7 +181,7 @@ python scripts/split_bill.py plans.json <策略名> [--discount 13.5]
 
 把 `--discount` 填上 `query-store-coupons` 查到的优惠金额。
 
-### 第 9 步：输出
+### 第 10 步：输出
 
 每套方案必须包含：
 
@@ -157,13 +203,17 @@ python scripts/split_bill.py plans.json <策略名> [--discount 13.5]
 ## 文件
 
 ```
+scripts/stores.py                  门店优选：滤打烊、按距离、标预约
 scripts/plan.py                    规划引擎（纯离线，无网络）
 scripts/campaign.py                活动感知：识别当季活动限定品 + 提取营销话术
+scripts/nutrition.py               营养热量：套餐组件累加、低卡替换、去酱建议
 scripts/split_bill.py              零尾差 AA 分账（整数分运算）
 scripts/render.py                  方案渲染（文本 / Markdown / 核价请求体）
 data/sample-case-4p-180.json       真实抓取样本（菜单 + 套餐详情）
 data/sample-campaigns.json         真实抓取样本（活动日历）
-tests/                             102 项自测（规划 / 活动 / 分账）
+data/sample-nutrition.json         真实抓取样本（营养表）
+data/sample-stores.json            真实抓取样本（门店列表）
+tests/                             134 项自测（规划 / 活动 / 分账 / 营养）
 references/input-schema.md         引擎输入格式
 references/output-schema.md        引擎输出格式
 references/mcp-tools.md            MCP 调用规范与踩坑记录
@@ -174,7 +224,7 @@ references/verified-run-2026-10-10.md  一次真实跑通的完整记录
 自测：
 
 ```bash
-python tests/test_plan.py && python tests/test_split_bill.py && python tests/test_campaign.py
+python tests/test_plan.py && python tests/test_campaign.py && python tests/test_split_bill.py && python tests/test_nutrition.py
 ```
 
 引擎是纯计算，不联网、不需要 Token，可直接离线运行。

@@ -1,0 +1,84 @@
+{
+  "data": [
+    {
+      "storeCode": "3390023",
+      "storeName": "麦当劳衡阳船山餐厅",
+      "address": "蒸湘北路30号步步高超市一楼",
+      "distance": 864,
+      "businessStatus": true,
+      "businessStartTime": "07:00",
+      "businessEndTime": "23:59",
+      "reservation": true,
+      "reservationTimeOptions": [
+        {
+          "date": "2026-10-10",
+          "reservationOptionText": "午餐(10:44至14:15)，下午茶(14:44至16:45)，夜市(17:14至21:45)，宵夜(22:14至23:45)"
+        }
+      ]
+    },
+    {
+      "storeCode": "3390229",
+      "storeName": "麦当劳衡阳大洋百货餐厅",
+      "address": "解放路121号大洋百货",
+      "distance": 887,
+      "businessStatus": true,
+      "businessStartTime": "07:00",
+      "businessEndTime": "01:00",
+      "reservation": true,
+      "reservationTimeOptions": [
+        {
+          "date": "2026-10-10",
+          "reservationOptionText": "午餐(10:44至14:15)，下午茶(14:44至16:45)，夜市(17:14至23:59)"
+        }
+      ]
+    },
+    {
+      "storeCode": "3390207",
+      "storeName": "麦当劳衡阳蒸阳北路餐厅",
+      "address": "蒸阳北路金泰花园综合楼8栋202等",
+      "distance": 1484,
+      "businessStatus": true,
+      "businessStartTime": "07:00",
+      "businessEndTime": "23:00",
+      "reservation": true,
+      "reservationTimeOptions": [
+        {
+          "date": "2026-10-10",
+          "reservationOptionText": "午餐(10:44至14:15)，下午茶(14:44至16:45)"
+        }
+      ]
+    },
+    {
+      "storeCode": "3390184",
+      "storeName": "麦当劳衡阳中粮路得来速餐厅",
+      "address": "蔡伦大道66号融冠乐城B10号",
+      "distance": 1556,
+      "businessStatus": true,
+      "businessStartTime": "07:00",
+      "businessEndTime": "02:00",
+      "reservation": true,
+      "reservationTimeOptions": [
+        {
+          "date": "2026-10-10",
+          "reservationOptionText": "午餐(10:44至14:15)，下午茶(14:44至16:45)"
+        }
+      ]
+    },
+    {
+      "storeCode": "3390082",
+      "storeName": "麦当劳衡阳万达餐厅",
+      "address": "衡阳万达广场一楼",
+      "distance": 1788,
+      "businessStatus": true,
+      "businessStartTime": "08:00",
+      "businessEndTime": "23:00",
+      "reservation": true,
+      "reservationTimeOptions": [
+        {
+          "date": "2026-10-10",
+          "reservationOptionText": "午餐(10:44至14:15)，下午茶(14:44至16:45)"
+        }
+      ]
+    }
+  ]
+}

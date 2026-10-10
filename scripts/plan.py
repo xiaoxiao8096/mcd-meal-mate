@@ -20,6 +20,7 @@ value     性价比首选：命中偏好 > 套餐优先 > 当季活动 > 价格�
 cheapest  极致省钱：每人最低成本主食 + 1 份共享小食，不加甜品
 tasty     当季尝鲜：同样先保证是套餐，最后取贵的把预算用满
 share     多人拼单：优先用双人/分享餐按"份"覆盖多人，差额用单品补齐
+light     轻食低卡：热量升序，热量查不到的排最后；配合 calorieTarget 使用
 """
 
 from __future__ import annotations
@@ -283,6 +284,7 @@ class Selection:
     rounds: List[Tuple[str, Choice]] = field(default_factory=list)
     spicy_unknown: bool = False
     flavour: Flavour = field(default_factory=Flavour)
+    kcal: Optional[float] = None      # None = 营养表里查不到
 
     def signature(self) -> str:
         return self.code + "|" + ",".join(f"{rid}:{ch.code}" for rid, ch in self.rounds)
@@ -364,6 +366,7 @@ def solve_rounds(detail: Detail, person: Person, used: Optional[Set[str]] = None
 # 方案
 # --------------------------------------------------------------------------
 STRATEGIES = {
+    "light": "轻食低卡",
     "value": "性价比首选",
     "cheapest": "极致省钱",
     "tasty": "当季尝鲜",
@@ -372,6 +375,7 @@ STRATEGIES = {
 
 # 各策略的共享配置：(共享小食份数, 甜品份数)
 SHARED_RECIPE = {
+    "light": (1, 0),
     "cheapest": (1, 0),
     "value": (2, 1),
     "tasty": (3, 2),
@@ -439,6 +443,7 @@ class Plan:
                 "price": sel.price,
                 "spicyUnknown": sel.spicy_unknown,
                 "isCampaignItem": sel.code in _CAMPAIGN_CODES,
+                "kcal": sel.kcal,
             })
         for g in self.groups:
             entry = {"productCode": g.code, "quantity": g.qty}
@@ -476,6 +481,8 @@ class Plan:
                  "unitPrice": it.price, "subtotal": round(it.price * q, 2)}
                 for it, q in self.shared
             ],
+            "totalKcal": round(sum(s.kcal for _, s in self.per_person if s.kcal), 1)
+                       if any(s.kcal for _, s in self.per_person) else None,
             "warnings": self.warnings,
             "calculatePriceRequest": {
                 "storeCode": store.get("storeCode"),
@@ -513,6 +520,27 @@ def candidate_selections(
     return out
 
 
+def kcal_of(name: str, code: str,
+            rounds: Optional[List[Tuple[str, "Choice"]]] = None) -> Optional[float]:
+    """
+    查热量。单品查 code/name；套餐把各轮次组件相加。
+    任一组件查不到就返回 None——不拿"同类大概多少"糊弄。
+    """
+    if _KCAL_BY_CODE:
+        if code and code in _KCAL_BY_CODE:
+            return _KCAL_BY_CODE[code]
+    if _KCAL_BY_NAME:
+        if name in _KCAL_BY_NAME:
+            return _KCAL_BY_NAME[name]
+        for rd in (rounds or []):
+            nm = rd[1].name
+            if nm not in _KCAL_BY_NAME:
+                return None
+        if rounds:
+            return round(sum(_KCAL_BY_NAME[rd[1].name] for rd in rounds), 2)
+    return None
+
+
 def rank(sel: Selection, person: Person, strategy: str, used: Set[str]) -> Tuple:
     """排序键：越小越优先。"""
     pref = -preference_hits(person, sel.flavour)      # 命中偏好优先
@@ -534,6 +562,11 @@ def rank(sel: Selection, person: Person, strategy: str, used: Set[str]) -> Tuple
         # 注意 is_rich 必须在 camp 之前——否则会挑到当季新品单品，
         # 出现"尝鲜比性价比还便宜"的反直觉结果。
         return (dup, pref, is_rich, camp, -sel.price)
+    if strategy == "light":
+        # 轻食低卡：热量升序。热量未知（None）排在最后——
+        # 宁可慢一点，也不用"大概不高"来糊弄减脂的人。
+        k = sel.kcal if sel.kcal is not None else float("inf")
+        return (dup, pref, k, sel.price)
     # share：优先能覆盖多人份的
     return (dup, pref, is_share, is_rich, sel.price)
 
@@ -543,6 +576,12 @@ _COMPLETE_CACHE: Dict[str, bool] = {}
 # 作用：在"同样是套餐"的前提下，活动限定品获得优先级——大家正在吃的就是这些。
 #       排序里它排在 is_rich 之后，所以不会把套餐降级成单品。
 _CAMPAIGN_CODES: Set[str] = set()
+
+# 热量表：code → kcal，以及"套餐各组件热量"（供套餐累加）。
+# 由 nutrition.py 或调用方注入。没有数据时排序退化为不看热量，绝不估算。
+_KCAL_BY_CODE: Dict[str, float] = {}
+_KCAL_BY_NAME: Dict[str, float] = {}
+_KCAL_TARGET: Optional[float] = None
 
 
 def _is_complete(sel: Selection) -> bool:
@@ -565,6 +604,9 @@ def build_plan(strategy: str, people: List[Person], items: Dict[str, Item],
         if not cands:
             warnings.append(f"{p.pid}：菜单中找不到同时满足其忌口与偏好的主食，需人工确认")
             return None
+        for c in cands:
+            if c.kcal is None:
+                c.kcal = kcal_of(c.name, c.code, c.rounds)
         cands.sort(key=lambda s: rank(s, p, strategy, used))
         pick = cands[0]
         used.add(pick.signature())
@@ -747,6 +789,20 @@ def main(argv: List[str]) -> int:
     for c in (data.get("campaignCodes") or []):
         _CAMPAIGN_CODES.add(str(c))
 
+    _KCAL_BY_CODE.clear(); _KCAL_BY_NAME.clear()
+    for k, v in (data.get("kcalByCode") or {}).items():
+        try:
+            _KCAL_BY_CODE[str(k)] = float(v)
+        except (TypeError, ValueError):
+            pass
+    for k, v in (data.get("kcalByName") or {}).items():
+        try:
+            _KCAL_BY_NAME[str(k).strip()] = float(v)
+        except (TypeError, ValueError):
+            pass
+    tgt = group.get("calorieTarget")
+    _KCAL_TARGET = float(tgt) if tgt else None
+
     result = {
         "store": store,
         "menuItemCount": len(items),
@@ -757,6 +813,7 @@ def main(argv: List[str]) -> int:
             "辣味为名称/标签文本判定，非成分表，不构成过敏建议。",
             "spicyUnknown=true 表示该餐品辣味未确认。",
             "isCampaignItem=true 表示该餐品出现在当期活动文案中。",
+            "kcal=null 表示营养表里查不到该餐品，未做任何估算。",
         ],
     }
     for st in (data.get("strategies") or list(STRATEGIES.keys())):

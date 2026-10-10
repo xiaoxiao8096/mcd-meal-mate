@@ -23,12 +23,13 @@ RULE = "─" * W
 
 # 每个策略一句话，人话
 PITCH = {
+    "light":    "热量升序，配热量目标用",
     "value":    "花小钱吃好，套餐优先、差价最优",
     "cheapest": "能省则省，人均地板价",
     "tasty":    "当季新品优先，把预算花到位",
     "share":    "双人餐按份算，几个人几份就够",
 }
-ICON = {"value": "💰", "cheapest": "🥇", "tasty": "✨", "share": "👥"}
+ICON = {"light": "🥗", "value": "💰", "cheapest": "🥇", "tasty": "✨", "share": "👥"}
 
 
 def _money(v: float) -> str:
@@ -54,6 +55,8 @@ def _assign_rows(plan: Dict[str, Any]) -> List[Tuple[str, str, float, str]]:
             marks.append("辣度未确认")
         if a.get("isCampaignItem"):
             marks.append("当期活动")
+        if a.get("kcal"):
+            marks.append(f"{a['kcal']:.0f}kcal")
         tail = ("  " + "·".join(marks)) if marks else ""
         rounds = " + ".join(r["name"] for r in a.get("rounds", []))
         sub = f"        └ {rounds}" if rounds else ""
@@ -70,6 +73,9 @@ def render_text(d: Dict[str, Any]) -> str:
         L.append(f"{ico} {p['label']}  ·  {PITCH.get(p['strategy'], '')}")
         L.append("")
         L.append(f"   合计 {_money(p['estimatedTotal'])}      人均 {_money(p['perCapita'])}")
+        if p.get("totalKcal"):
+            n = len(p.get("assignments", [])) or 1
+            L.append(f"   热量 {p['totalKcal']:.0f} kcal      人均 {p['totalKcal']/n:.0f} kcal")
         L.append("")
 
         rows = _assign_rows(p)

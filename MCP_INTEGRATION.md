@@ -4,7 +4,9 @@
 
 - **Server**：`https://mcp.mcd.cn`（麦当劳中国远程托管，Streamable HTTP）
 - **文档**：[M-China/mcd-mcp-server](https://github.com/M-China/mcd-mcp-server)
-- **本项目用到的 Tool 数量**：7 个主用 + 2 个按需
+- **客户端要求**：仅需支持 **Streamable HTTP**。本项目不绑定任何客户端，官方文档列出的
+  WorkBuddy / Cursor / Cherry Studio / Trae / VS Code / Kiro 都能用同一份配置接入。
+- **本项目用到的 Tool 数量**：7 个主用 + 1 个按需
 
 ## 一、调用流程
 
